@@ -163,3 +163,8 @@ async def fetch_draft(mailbox_email: str, email_id: str):
 async def reply_email(mailbox_email: str, email_id: str, email_data: dict):
     """ Reply to an email """
     return email_service.reply_to_email(mailbox_email, email_id, email_data)
+
+@router.post("/emails/forward/{email_id}")
+async def forward_email(mailbox_email: str, email_id: str, email_data: dict):
+    """ Forward an email """
+    return email_service.forward_email(mailbox_email, email_id, email_data)

@@ -762,3 +762,48 @@ def reply_to_email(mailbox_email: str, email_id: str, email_data):
 
     except Exception as e:
         return {"error": f"Failed to reply: {str(e)}"}
+
+def forward_email(mailbox_email: str, email_id: str, email_data):
+    """ Forward an email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select INBOX to fetch original email
+        imap.select("INBOX")
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Original email {email_id} not found"}
+
+        # Fetch original email
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Create forward message
+        forward_msg = EmailMessage()
+        forward_msg["From"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
+        forward_msg["To"] = ", ".join(email_data.get("to", []))
+        forward_msg["Subject"] = f"Fwd: {msg['Subject']}"
+        forward_msg.set_content(email_data.get("body", ""))
+
+        # Attach original email
+        forward_msg.add_attachment(msg.as_bytes(), maintype="message", subtype="rfc822")
+
+        # Send forward
+        asyncio.run(aiosmtplib.send(forward_msg.as_string(), hostname=config["smtp_server"], port=587, username=config["email"], password=config["password"]))
+
+        # Save forward in Sent folder
+        sent_folder = get_imap_folder_name(imap, "Sent")
+        imap.append(sent_folder, None, None, forward_msg.as_bytes())
+        imap.logout()
+
+        return {"message": "Email forwarded successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to forward email: {str(e)}"}
