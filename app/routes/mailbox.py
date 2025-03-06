@@ -207,3 +207,33 @@ async def search_emails(mailbox_email: str, query: str, page: int = 1, limit: in
 async def fetch_email_attachments(mailbox_email: str, email_id: str):
     """ Fetch attachments of a specific email """
     return email_service.get_email_attachments(mailbox_email, email_id)
+
+@router.get("/emails/attachment/{email_id}/{attachment_id}")
+async def fetch_email_attachment(mailbox_email: str, email_id: str, attachment_id: str):
+    """ Fetch a specific attachment of an email """
+    return email_service.get_email_attachment(mailbox_email, email_id, attachment_id)
+
+@router.get("/emails/attachment/download/{email_id}/{attachment_id}")
+async def download_email_attachment(mailbox_email: str, email_id: str, attachment_id: str):
+    """ Download a specific attachment of an email """
+    return email_service.download_email_attachment(mailbox_email, email_id, attachment_id)
+
+@router.post("/emails/star/{email_id}")
+async def star_email(mailbox_email: str, email_id: str):
+    """ Star an email """
+    return email_service.star_email(mailbox_email, email_id)
+
+@router.post("/emails/unstar/{email_id}")
+async def unstar_email(mailbox_email: str, email_id: str):
+    """ Unstar an email """
+    return email_service.unstar_email(mailbox_email, email_id)
+
+@router.get("/emails/filter")
+async def filter_emails(mailbox_email: str, filter_type: str, page: int = 1, limit: int = 20):
+    """ Filter emails based on a filter type """
+    return email_service.filter_emails(mailbox_email, filter_type, page, limit)
+
+@router.get("/emails/starred")
+async def fetch_starred_emails(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch starred emails """
+    return email_service.get_starred_emails(mailbox_email, page, limit)

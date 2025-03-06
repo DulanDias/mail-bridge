@@ -1067,3 +1067,341 @@ def get_email_attachments(mailbox_email: str, email_id: str):
 
     except Exception as e:
         return {"error": f"Failed to fetch attachments: {str(e)}"}
+    
+def star_email(mailbox_email: str, email_id: str):
+        """ Star an email in the mailbox """
+
+        config = get_mailbox_config(mailbox_email)
+
+        try:
+            imap = imaplib.IMAP4_SSL(config["imap_server"])
+            imap.login(config["email"], config["password"])
+
+            # Select the INBOX
+            imap.select("INBOX")
+
+            # Search for the email by Message-ID
+            _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+            email_ids = messages[0].split()
+
+            if not email_ids:
+                imap.logout()
+                return {"error": f"Email {email_id} not found in INBOX"}
+
+            # Star email
+            for eid in email_ids:
+                imap.store(eid, "+FLAGS", "\\Flagged")
+
+            imap.logout()
+            return {"message": f"Email {email_id} starred"}
+
+        except Exception as e:
+            return {"error": f"Failed to star email {email_id}: {str(e)}"}
+
+def unstar_email(mailbox_email: str, email_id: str):
+        """ Unstar an email in the mailbox """
+
+        config = get_mailbox_config(mailbox_email)
+
+        try:
+            imap = imaplib.IMAP4_SSL(config["imap_server"])
+            imap.login(config["email"], config["password"])
+
+            # Select the INBOX
+            imap.select("INBOX")
+
+            # Search for the email by Message-ID
+            _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+            email_ids = messages[0].split()
+
+            if not email_ids:
+                imap.logout()
+                return {"error": f"Email {email_id} not found in INBOX"}
+
+            # Unstar email
+            for eid in email_ids:
+                imap.store(eid, "-FLAGS", "\\Flagged")
+
+            imap.logout()
+            return {"message": f"Email {email_id} unstarred"}
+
+        except Exception as e:
+            return {"error": f"Failed to unstar email {email_id}: {str(e)}"}
+
+        
+def get_email_attachment(mailbox_email: str, email_id: str, attachment_id: str):
+            """ Fetch a specific attachment from an email by attachment ID """
+
+            config = get_mailbox_config(mailbox_email)
+
+            try:
+                imap = imaplib.IMAP4_SSL(config["imap_server"])
+                imap.login(config["email"], config["password"])
+
+                # Select INBOX
+                imap.select("INBOX")
+
+                # Search for the email by Message-ID
+                _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+                email_ids = messages[0].split()
+
+                if not email_ids:
+                    imap.logout()
+                    return {"error": f"Email {email_id} not found"}
+
+                # Fetch the email
+                _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+                msg = email.message_from_bytes(msg_data[0][1])
+
+                # Extract the specific attachment
+                for part in msg.walk():
+                    content_disposition = str(part.get("Content-Disposition"))
+                    if "attachment" in content_disposition:
+                        filename = part.get_filename()
+                        if filename == attachment_id:
+                            file_data = part.get_payload(decode=True)
+                            imap.logout()
+                            return {
+                                "filename": filename,
+                                "size": len(file_data),
+                                "content": base64.b64encode(file_data).decode("utf-8")
+                            }
+
+                imap.logout()
+                return {"error": f"Attachment {attachment_id} not found in email {email_id}"}
+
+            except Exception as e:
+                return {"error": f"Failed to fetch attachment: {str(e)}"}
+            
+def download_email_attachment(mailbox_email: str, email_id: str, attachment_id: str):
+    """ Download a specific attachment from an email by attachment ID """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select INBOX
+        imap.select("INBOX")
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found"}
+
+        # Fetch the email
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Extract the specific attachment
+        for part in msg.walk():
+            content_disposition = str(part.get("Content-Disposition"))
+            if "attachment" in content_disposition:
+                filename = part.get_filename()
+                if filename == attachment_id:
+                    file_data = part.get_payload(decode=True)
+                    imap.logout()
+                    return {
+                        "filename": filename,
+                        "size": len(file_data),
+                        "content": base64.b64encode(file_data).decode("utf-8")
+                    }
+
+        imap.logout()
+        return {"error": f"Attachment {attachment_id} not found in email {email_id}"}
+
+    except Exception as e:
+        return {"error": f"Failed to fetch attachment: {str(e)}"}
+    
+def filter_emails(mailbox_email: str, filter_type: str, page: int = 1, limit: int = 20):
+        """ Filter emails in the mailbox based on the filter type """
+
+        config = get_mailbox_config(mailbox_email)
+
+        try:
+            imap = imaplib.IMAP4_SSL(config["imap_server"])
+            imap.login(config["email"], config["password"])
+            imap.select("INBOX")
+
+            # Define search criteria based on filter type
+            if filter_type == "read":
+                search_criteria = "SEEN"
+            elif filter_type == "unread":
+                search_criteria = "UNSEEN"
+            elif filter_type == "starred":
+                search_criteria = "FLAGGED"
+            elif filter_type == "unstarred":
+                search_criteria = "UNFLAGGED"
+            elif filter_type == "with_attachments":
+                search_criteria = "HASATTACHMENT"
+            else:
+                return {"error": f"Invalid filter type: {filter_type}"}
+
+            # Search emails based on criteria
+            status, messages = imap.search(None, search_criteria)
+            if status != "OK":
+                return {"error": f"Failed to filter emails with criteria: {search_criteria}"}
+
+            email_ids = messages[0].split()
+
+            # Paginate results
+            start = max(0, len(email_ids) - (page * limit))
+            end = start + limit
+            email_subset = email_ids[start:end]
+
+            email_list = []
+
+            for eid in email_subset:
+                _, msg_data = imap.fetch(eid, "(RFC822)")
+                for response_part in msg_data:
+                    if isinstance(response_part, tuple):
+                        msg = email.message_from_bytes(response_part[1])
+
+                        # Extract subject and decode it properly
+                        subject, encoding = decode_header(msg["Subject"])[0]
+                        if isinstance(subject, bytes):
+                            subject = subject.decode(encoding or "utf-8")
+
+                        # Extract sender
+                        sender = msg["From"]
+
+                        # Extract date
+                        date = msg["Date"]
+
+                        # Extract a small preview of the email body
+                        body_preview = "No preview available"
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                content_type = part.get_content_type()
+                                content_disposition = str(part.get("Content-Disposition"))
+
+                                if content_type == "text/plain" and "attachment" not in content_disposition:
+                                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                    body_preview = body[:100]  # First 100 characters
+                                    break
+                        else:
+                            body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                            body_preview = body[:100]
+
+                        email_list.append({
+                            "email_id": eid.decode(),
+                            "subject": subject or "No Subject",
+                            "from": sender or "Unknown Sender",
+                            "date": date or "Unknown Date",
+                            "body_preview": body_preview
+                        })
+
+            imap.logout()
+            return {"emails": email_list}
+
+        except Exception as e:
+            return {"error": f"Failed to filter emails: {str(e)}"}
+        
+def get_email_flags(mailbox_email: str, email_id: str):
+    """ Get the flags of a specific email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select INBOX
+        imap.select("INBOX")
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found"}
+
+        # Fetch the email flags
+        _, msg_data = imap.fetch(email_ids[0], "(FLAGS)")
+        flags = msg_data[0].decode()
+
+        imap.logout()
+        return {"flags": flags}
+
+    except Exception as e:
+        return {"error": f"Failed to fetch email flags: {str(e)}"}
+    
+def get_starred_emails(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch starred emails with pagination """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        imap.select("INBOX")
+
+        # Search for starred emails
+        status, messages = imap.search(None, "FLAGGED")
+        if status != "OK":
+            return {"error": "Failed to fetch starred emails"}
+
+        email_ids = messages[0].split()
+
+        # Paginate results
+        start = max(0, len(email_ids) - (page * limit))
+        end = start + limit
+        email_subset = email_ids[start:end]
+
+        email_list = []
+
+        for eid in email_subset:
+            _, msg_data = imap.fetch(eid, "(RFC822)")
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+
+                    # Extract subject and decode properly
+                    subject, encoding = decode_header(msg["Subject"])[0]
+                    if isinstance(subject, bytes):
+                        subject = subject.decode(encoding or "utf-8")
+
+                    # Extract sender
+                    sender = msg["From"]
+
+                    # Extract date
+                    date = msg["Date"]
+
+                    # Extract a small preview of the email body
+                    body_preview = "No preview available"
+                    attachments_preview = []
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            content_type = part.get_content_type()
+                            content_disposition = str(part.get("Content-Disposition"))
+
+                            if content_type == "text/plain" and "attachment" not in content_disposition:
+                                body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                body_preview = body[:100]  # First 100 characters
+                            elif "attachment" in content_disposition:
+                                filename = part.get_filename()
+                                attachments_preview.append(filename)
+                    else:
+                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                        body_preview = body[:100]
+
+                    email_list.append({
+                        "email_id": eid.decode(),
+                        "subject": subject or "No Subject",
+                        "from": sender or "Unknown Sender",
+                        "date": date or "Unknown Date",
+                        "body_preview": body_preview,
+                        "attachments_preview": attachments_preview
+                    })
+
+        imap.logout()
+        return {"emails": email_list}
+
+    except Exception as e:
+        return {"error": f"Failed to fetch starred emails: {str(e)}"}
+
