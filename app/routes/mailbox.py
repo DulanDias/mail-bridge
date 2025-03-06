@@ -187,3 +187,8 @@ async def reply_all(mailbox_email: str, email_id: str, email_data: dict):
 async def update_draft(mailbox_email: str, email_id: str, email_data: dict):
     """ Update a saved draft """
     return email_service.update_draft(mailbox_email, email_id, email_data)
+
+@router.delete("/emails/drafts/delete/{email_id}")
+async def delete_draft(mailbox_email: str, email_id: str):
+    """ Delete a saved draft """
+    return email_service.delete_draft(mailbox_email, email_id)

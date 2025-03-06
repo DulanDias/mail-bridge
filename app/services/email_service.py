@@ -902,3 +902,41 @@ def update_draft(mailbox_email: str, email_id: str, email_data):
 
     except Exception as e:
         return {"error": f"Failed to update draft: {str(e)}"}
+
+def delete_draft(mailbox_email: str, email_id: str):
+    """ Delete a draft email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get the correct Drafts folder name
+        drafts_folder = get_imap_folder_name(imap, "Drafts")
+
+        # Select Drafts folder
+        status, _ = imap.select(drafts_folder)
+        if status != "OK":
+            return {"error": f"Failed to select Drafts folder"}
+
+        # Search for the draft by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Draft {email_id} not found"}
+
+        # Mark draft for deletion
+        for eid in email_ids:
+            imap.store(eid, "+FLAGS", "\\Deleted")
+
+        # Expunge (permanently delete)
+        imap.expunge()
+        imap.logout()
+
+        return {"message": f"Draft {email_id} deleted successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to delete draft: {str(e)}"}
