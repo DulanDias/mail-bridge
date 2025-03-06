@@ -48,30 +48,28 @@ def send_email_task(mailbox_email: str, email_data: dict):
         if not all_recipients:
             return {"error": "No recipients provided"}
 
-        # Create Multi-Part Email Message
-        msg = MIMEMultipart("alternative")  # Ensures correct MIME structure
+        # Get email content type from request (default to HTML)
+        content_type = email_data.get("content_type", "html").lower()
+        email_body = email_data.get("body", "")
+
+        # Create Email Message
+        if content_type == "plain":
+            # ✅ Plain text email (no multipart)
+            msg = EmailMessage()
+            msg.set_content(email_body)  # Only plain text
+        else:
+            # ✅ Multi-Part Email with Plain Text & HTML
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText("This email requires an HTML-supported email client to view properly.", "plain"))
+            msg.attach(MIMEText(email_body, "html"))
+
+        # Set email headers
         msg["From"] = formatted_sender
         msg["To"] = ", ".join(to_recipients)
         msg["CC"] = ", ".join(cc_recipients)
         msg["BCC"] = ", ".join(bcc_recipients)
         msg["Subject"] = email_data.get("subject", "No Subject")
         msg["Reply-To"] = formatted_sender
-
-        # Get email content type from request (default to HTML)
-        content_type = email_data.get("content_type", "html").lower()
-
-        # Extract the email body
-        email_body = email_data.get("body", "")
-
-        # Add both plain text and HTML parts
-        plain_text_body = "This email requires an HTML-supported email client to view properly."
-        if content_type == "plain":
-            plain_text_body = email_body
-        elif content_type == "html":
-            msg.attach(MIMEText(plain_text_body, "plain"))
-            msg.attach(MIMEText(email_body, "html"))  # Add HTML body
-        else:
-            msg.attach(MIMEText(email_body, "plain"))  # Default to plain text if invalid type
 
         # Process attachments (Decode from base64)
         attachments = email_data.get("attachments", [])
@@ -84,11 +82,11 @@ def send_email_task(mailbox_email: str, email_data: dict):
             except Exception as e:
                 return {"error": f"Failed to process attachment {attachment['filename']}: {str(e)}"}
 
-        # Pass both `sender` and `recipients` explicitly in aiosmtplib.send()
+        # ✅ Pass both `sender` and `recipients` explicitly in `aiosmtplib.send()`
         response = asyncio.run(aiosmtplib.send(
             msg.as_string(),  # Send as raw message
-            sender=sender_email, 
-            recipients=all_recipients,  
+            sender=sender_email,  # ✅ Explicitly pass sender email
+            recipients=all_recipients,  # ✅ Provide recipients explicitly
             hostname=config["smtp_server"], port=587,
             username=config["email"], password=config["password"]
         ))
