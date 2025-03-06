@@ -82,3 +82,13 @@ async def mark_email_as_unread(mailbox_email: str, email_id: str):
 async def archive_email(mailbox_email: str, email_id: str):
     """ Move an email to Archive folder """
     return {"message": f"Email {email_id} archived"}
+
+@router.get("/full-email/{email_id}")
+async def fetch_full_email(mailbox_email: str, email_id: str):
+    """ Fetch the full content of an email including attachments """
+    return email_service.get_full_email(mailbox_email, email_id)
+
+@router.get("/folder-emails")
+async def fetch_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from Sent, Trash, or Archive folders with pagination """
+    return email_service.get_emails_by_folder(mailbox_email, folder, page, limit)

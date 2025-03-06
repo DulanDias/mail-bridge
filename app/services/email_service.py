@@ -246,7 +246,7 @@ def get_full_email(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to fetch full email: {str(e)}"}
     
-    def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
+def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
     """ Fetch emails from a specific IMAP folder (Sent, Trash, Archive) with pagination """
 
     # Retrieve stored mailbox configuration
