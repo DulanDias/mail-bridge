@@ -808,3 +808,45 @@ def forward_email(mailbox_email: str, email_id: str, email_data):
     except Exception as e:
         return {"error": f"Failed to forward email: {str(e)}"}
     
+def reply_all_email(mailbox_email: str, email_id: str):
+    """ Reply to all recipients of an email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select INBOX to fetch original email
+        imap.select("INBOX")
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Original email {email_id} not found"}
+
+        # Fetch original email
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Create reply-all message
+        reply_msg = EmailMessage()
+        reply_msg["From"] = config["email"]
+        reply_msg["To"] = msg["From"]
+        reply_msg["Cc"] = msg["Cc"]
+        reply_msg["Subject"] = f"Re: {msg['Subject']}"
+        reply_msg.set_content("Replying to all recipients")
+
+        # Send reply-all
+        asyncio.run(aiosmtplib.send(reply_msg.as_string(), hostname=config["smtp_server"], port=587, username=config["email"], password=config["password"]))
+
+        # Save reply in Sent folder
+        sent_folder = get_imap_folder_name(imap, "Sent")
+        imap.append(sent_folder, None, None, reply_msg.as_bytes())
+        imap.logout()
+
+        return {"message": "Reply-all sent successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to reply-all: {str(e)}"}

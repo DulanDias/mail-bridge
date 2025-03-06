@@ -173,3 +173,8 @@ async def forward_email(mailbox_email: str, email_id: str, email_data: dict):
 async def archive_email(mailbox_email: str, email_id: str):
     """ Move an email to Archive folder """
     return email_service.move_email(mailbox_email, email_id, "INBOX", "Archive")
+
+@router.post("emails/reply-all/{email_id}")
+async def reply_all(mailbox_email: str, email_id: str, email_data: dict):
+    """ Reply to all recipients of an email """
+    return email_service.reply_all(mailbox_email, email_id, email_data)
