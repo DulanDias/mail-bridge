@@ -84,6 +84,11 @@ def send_email_task(mailbox_email: str, email_data: dict):
             except Exception as e:
                 return {"error": f"Failed to process attachment {attachment['filename']}: {str(e)}"}
 
+        # Handle read receipt
+        if email_data.get("read_receipt", False):
+            read_receipt_email = email_data.get("read_receipt_email", sender_email)
+            msg["Disposition-Notification-To"] = read_receipt_email
+
         # ✅ Pass both `sender` and `recipients` explicitly in `aiosmtplib.send()`
         response = asyncio.run(aiosmtplib.send(
             msg.as_string(),  # Send as raw message

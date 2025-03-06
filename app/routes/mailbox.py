@@ -27,9 +27,11 @@ async def send_email(
     subject: str = Form(...),
     body: str = Form(...),
     content_type: str = Form("html"),  # Default to "html"
-    attachments: Optional[List[UploadFile]] = File(None)  # Optional attachments
+    attachments: Optional[List[UploadFile]] = File(None),  # Optional attachments
+    read_receipt: bool = Form(False),  # Optional read receipt request
+    read_receipt_email: Optional[str] = Form(None)  # Optional email for read receipts
 ):
-    """ Send an email via SMTP with a selectable content type """
+    """ Send an email via SMTP with a selectable content type and optional read receipt """
 
     try:
         # Process attachments
@@ -52,7 +54,9 @@ async def send_email(
             "subject": subject,
             "body": body,
             "content_type": content_type.lower(),  # Normalize to lowercase
-            "attachments": attachments_data
+            "attachments": attachments_data,
+            "read_receipt": read_receipt,  # Include read receipt request
+            "read_receipt_email": read_receipt_email  # Include read receipt email
         }
 
         # Trigger Celery background task
