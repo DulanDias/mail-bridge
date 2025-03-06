@@ -32,8 +32,8 @@
 ## **🚀 Getting Started**
 ### **1️⃣ Clone the Repository**
 ```
-git clone https://github.com/yourusername/mailbridge.git
-cd mailbridge
+git clone https://github.com/DulanDias/mail-bridge.git
+cd mail-bridge
 ```
 
 ### **2️⃣ Install Dependencies**
@@ -100,12 +100,17 @@ docker-compose up -d
 |-------------|-----------|----------------|
 | `/api/v1/mailbox/config` | `POST` | Configure a mailbox (IMAP/SMTP) |
 | `/api/v1/mailbox/emails` | `GET` | Fetch paginated email list |
+| `/api/v1/mailbox/full-email/{email_id}` | `GET` | Fetch full email (with attachments) |
 | `/api/v1/mailbox/send` | `POST` | Send an email (with attachments) |
 | `/api/v1/mailbox/delete` | `POST` | Delete an email (move to trash) |
 | `/api/v1/mailbox/mark-read` | `POST` | Mark an email as read |
 | `/api/v1/mailbox/mark-unread` | `POST` | Mark an email as unread |
 | `/api/v1/mailbox/archive` | `POST` | Archive an email |
+| `/api/v1/mailbox/move` | `POST` | Move an email to a specified folder |
+| `/api/v1/mailbox/status` | `GET` | Fetch mailbox status (unread, total, starred emails) |
+| `/api/v1/mailbox/unread-count` | `GET` | Get unread email count for a mailbox |
 | `/api/v1/mailbox/ws` | `WS` | WebSocket for real-time updates |
+| `/api/v1/mailbox/check-new-emails` | `POST` | Manually trigger background email check |
 
 ---
 
