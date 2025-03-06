@@ -940,3 +940,23 @@ def delete_draft(mailbox_email: str, email_id: str):
 
     except Exception as e:
         return {"error": f"Failed to delete draft: {str(e)}"}
+    
+def get_unread_count(mailbox_email: str):
+    """ Get the total number of unread emails in the mailbox """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        imap.select("INBOX")
+
+        _, messages = imap.search(None, "UNSEEN")
+        email_ids = messages[0].split()
+        unread_count = len(email_ids)
+
+        imap.logout()
+        return {"unread_count": unread_count}
+
+    except Exception as e:
+        return {"error": f"Failed to get unread count: {str(e)}"}

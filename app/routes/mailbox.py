@@ -192,3 +192,8 @@ async def update_draft(mailbox_email: str, email_id: str, email_data: dict):
 async def delete_draft(mailbox_email: str, email_id: str):
     """ Delete a saved draft """
     return email_service.delete_draft(mailbox_email, email_id)
+
+@router.get("/emails/unread/count")
+async def get_unread_email_count(mailbox_email: str):
+    """ Get the count of unread emails """
+    return email_service.get_unread_email_count(mailbox_email)
