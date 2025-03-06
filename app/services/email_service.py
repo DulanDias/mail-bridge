@@ -245,3 +245,74 @@ def get_full_email(mailbox_email: str, email_id: str):
 
     except Exception as e:
         return {"error": f"Failed to fetch full email: {str(e)}"}
+    
+    def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from a specific IMAP folder (Sent, Trash, Archive) with pagination """
+
+    # Retrieve stored mailbox configuration
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        # Connect to IMAP server
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        
+        # Select the folder (Sent, Trash, Archive)
+        imap.select(folder)
+
+        # Fetch all email IDs
+        _, messages = imap.search(None, "ALL")
+        email_ids = messages[0].split()
+
+        # Paginate results
+        start = max(0, len(email_ids) - (page * limit))
+        end = start + limit
+        email_subset = email_ids[start:end]
+
+        email_list = []
+
+        for eid in email_subset:
+            _, msg_data = imap.fetch(eid, "(RFC822)")
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+
+                    # Extract subject and decode properly
+                    subject, encoding = decode_header(msg["Subject"])[0]
+                    if isinstance(subject, bytes):
+                        subject = subject.decode(encoding or "utf-8")
+
+                    # Extract sender
+                    sender = msg["From"]
+
+                    # Extract date
+                    date = msg["Date"]
+
+                    # Extract a small preview of the email body
+                    body_preview = "No preview available"
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            content_type = part.get_content_type()
+                            content_disposition = str(part.get("Content-Disposition"))
+
+                            if content_type == "text/plain" and "attachment" not in content_disposition:
+                                body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                body_preview = body[:100]  # First 100 characters
+                                break
+                    else:
+                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                        body_preview = body[:100]
+
+                    email_list.append({
+                        "email_id": eid.decode(),
+                        "subject": subject,
+                        "from": sender,
+                        "date": date,
+                        "body_preview": body_preview
+                    })
+
+        imap.logout()
+        return {"emails": email_list}
+
+    except Exception as e:
+        return {"error": f"Failed to fetch emails from {folder}: {str(e)}"}
