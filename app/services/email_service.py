@@ -53,3 +53,33 @@ def validate_mailbox(config: MailboxConfig):
         return False, f"SMTP Validation Failed: {str(e)}"
 
     return True, None
+
+def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from the mailbox using IMAP """
+    
+    # Retrieve stored mailbox configuration
+    config = get_mailbox_config(mailbox_email)
+
+    # Connect to IMAP server
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        imap.select("INBOX")
+
+        # Fetch all email IDs
+        _, messages = imap.search(None, "ALL")
+        email_ids = messages[0].split()
+
+        # Paginate results
+        start = max(0, len(email_ids) - (page * limit))
+        end = start + limit
+        email_subset = email_ids[start:end]
+
+        # Format email list response
+        email_list = [{"email_id": eid.decode(), "subject": "Sample Subject"} for eid in email_subset]
+
+        imap.logout()
+        return {"emails": email_list}
+
+    except Exception as e:
+        return {"error": f"Failed to fetch emails: {str(e)}"}
