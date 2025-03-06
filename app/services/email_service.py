@@ -183,3 +183,63 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
 
     except Exception as e:
         return {"error": f"Failed to fetch emails: {str(e)}", "traceback": traceback.format_exc()}
+
+def get_full_email(mailbox_email: str, email_id: str):
+    """ Fetch the full email including HTML body & attachments """
+
+    # Retrieve stored mailbox configuration
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        # Connect to IMAP server
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        imap.select("INBOX")
+
+        # Fetch the email
+        _, msg_data = imap.fetch(email_id, "(RFC822)")
+        raw_email = msg_data[0][1]
+
+        # Parse email
+        msg = BytesParser(policy=policy.default).parsebytes(raw_email)
+
+        # Extract email details
+        subject = msg["Subject"]
+        sender = msg["From"]
+        date = msg["Date"]
+        body = ""
+        attachments = []
+
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                content_disposition = str(part.get("Content-Disposition"))
+
+                if "attachment" in content_disposition:
+                    # Handle attachments
+                    attachment_data = part.get_payload(decode=True)
+                    attachments.append({
+                        "filename": part.get_filename(),
+                        "content_type": content_type,
+                        "base64_content": base64.b64encode(attachment_data).decode("utf-8")
+                    })
+                elif content_type == "text/plain":
+                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                elif content_type == "text/html":
+                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+        else:
+            body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+        imap.logout()
+        return {
+            "email_id": email_id,
+            "subject": subject,
+            "from": sender,
+            "date": date,
+            "body": body,
+            "attachments": attachments
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to fetch full email: {str(e)}"}
