@@ -89,9 +89,62 @@ async def archive_email(mailbox_email: str, email_id: str):
 @router.get("/full-email/{email_id}")
 async def fetch_full_email(mailbox_email: str, email_id: str):
     """ Fetch the full content of an email including attachments """
-    return email_service.get_full_email(mailbox_email, email_id)
+    return email_service.get_full_email_from_inbox(mailbox_email, email_id)
 
-@router.get("/folder-emails")
-async def fetch_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
-    """ Fetch emails from Sent, Trash, or Archive folders with pagination """
-    return email_service.get_emails_by_folder(mailbox_email, folder, page, limit)
+### FETCH EMAILS BY FOLDER ###
+@router.get("/emails/inbox")
+async def fetch_inbox(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from Inbox """
+    return email_service.get_emails_by_folder(mailbox_email, "INBOX", page, limit)
+
+@router.get("/emails/trash")
+async def fetch_trash(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from Trash """
+    return email_service.get_emails_by_folder(mailbox_email, "Trash", page, limit)
+
+@router.get("/emails/spam")
+async def fetch_spam(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from Spam """
+    return email_service.get_emails_by_folder(mailbox_email, "Spam", page, limit)
+
+@router.get("/emails/drafts")
+async def fetch_drafts(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from Drafts """
+    return email_service.get_emails_by_folder(mailbox_email, "Drafts", page, limit)
+
+@router.get("/emails/sent")
+async def fetch_sent(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from Sent """
+    return email_service.get_emails_by_folder(mailbox_email, "Sent", page, limit)
+
+@router.get("/emails/archive")
+async def fetch_archive(mailbox_email: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from Archive """
+    return email_service.get_emails_by_folder(mailbox_email, "Archive", page, limit)
+
+### DELETE EMAIL (MOVE TO TRASH FIRST) ###
+@router.post("/delete")
+async def delete_email(mailbox_email: str, email_id: str):
+    """ Move email to Trash first, then permanently delete if already in Trash """
+    return email_service.delete_email(mailbox_email, email_id)
+
+@router.delete("/emails/trash/delete/{email_id}")
+async def delete_email_from_trash(mailbox_email: str, email_id: str):
+    """ Permanently delete a specific email from Trash """
+    return email_service.delete_email_from_trash(mailbox_email, email_id)
+
+### MOVE EMAIL BETWEEN FOLDERS ###
+@router.post("/emails/move")
+async def move_email(mailbox_email: str, email_id: str, from_folder: str, to_folder: str):
+    """ Move email from one folder to another """
+    return email_service.move_email(mailbox_email, email_id, from_folder, to_folder)
+
+@router.post("/emails/trash/empty")
+async def empty_trash(mailbox_email: str):
+    """ Permanently delete all emails in Trash """
+    return email_service.empty_trash(mailbox_email)
+
+@router.get("/emails/{folder}/full-email/{email_id}")
+async def fetch_full_email_from_folder(mailbox_email: str, folder: str, email_id: str):
+    """ Fetch full email content including attachments from any folder """
+    return email_service.get_full_email_from_folder(mailbox_email, email_id, folder)

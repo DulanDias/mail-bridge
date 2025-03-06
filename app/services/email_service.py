@@ -186,7 +186,7 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     except Exception as e:
         return {"error": f"Failed to fetch emails: {str(e)}", "traceback": traceback.format_exc()}
 
-def get_full_email(mailbox_email: str, email_id: str):
+def get_full_email_from_inbox(mailbox_email: str, email_id: str):
     """ Fetch the full email including HTML body & attachments """
 
     # Retrieve stored mailbox configuration
@@ -246,8 +246,31 @@ def get_full_email(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to fetch full email: {str(e)}"}
     
+def get_imap_folder_name(imap, folder_name):
+    """ Get the correct IMAP folder name based on the email provider. """
+    folder_mappings = {
+        "Trash": ["Trash", "[Gmail]/Trash", "Deleted Items", "Bin"],
+        "Sent": ["Sent", "[Gmail]/Sent Mail", "Sent Items"],
+        "Archive": ["Archive", "[Gmail]/All Mail"]
+    }
+
+    try:
+        # List available folders
+        _, folders = imap.list()
+        folder_list = [f.decode().split(' "." ')[-1].strip() for f in folders]
+
+        for mapped_name in folder_mappings.get(folder_name, [folder_name]):
+            if mapped_name in folder_list:
+                return mapped_name  # Return the correct folder name
+
+        return folder_name  # Fallback to requested folder
+
+    except Exception:
+        return folder_name  # Fallback to requested folder
+
+
 def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
-    """ Fetch emails from a specific IMAP folder (Sent, Trash, Archive) with pagination """
+    """ Fetch emails from Sent, Trash, or Archive folders with pagination """
 
     # Retrieve stored mailbox configuration
     config = get_mailbox_config(mailbox_email)
@@ -256,9 +279,17 @@ def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: 
         # Connect to IMAP server
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-        
-        # Select the folder (Sent, Trash, Archive)
-        imap.select(folder)
+
+        # Get the correct folder name
+        correct_folder = get_imap_folder_name(imap, folder)
+
+        # DEBUG: Print available folders
+        print(f"Selected IMAP Folder: {correct_folder}")
+
+        # Select the folder
+        status, messages = imap.select(correct_folder, readonly=True)
+        if status != "OK":
+            return {"error": f"Failed to select folder: {correct_folder}"}
 
         # Fetch all email IDs
         _, messages = imap.search(None, "ALL")
@@ -317,24 +348,227 @@ def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: 
     except Exception as e:
         return {"error": f"Failed to fetch emails from {folder}: {str(e)}"}
 
-def delete_email(mailbox_email: str, email_id: str):
-    """ Move an email to the Trash folder using IMAP """
 
-    # Retrieve stored mailbox configuration
+def delete_email(mailbox_email: str, email_id: str):
+    """ Move an email to the Trash folder first. If it's already in Trash, permanently delete it. """
+
     config = get_mailbox_config(mailbox_email)
 
     try:
-        # Connect to IMAP server
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-        imap.select("INBOX")  # Select the inbox
 
-        # Move email to Trash (Flag for deletion)
+        # Get the Trash folder name
+        trash_folder = get_imap_folder_name(imap, "Trash")
+
+        # Check if the email is already in Trash
+        status, _ = imap.select(trash_folder)
+        if status == "OK":
+            _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+            if messages[0]:
+                # If in Trash, permanently delete
+                imap.store(email_id, "+FLAGS", "\\Deleted")
+                imap.expunge()
+                imap.logout()
+                return {"message": f"Email {email_id} permanently deleted from Trash"}
+
+        # Otherwise, move to Trash
+        imap.select("INBOX")
+        imap.copy(email_id, trash_folder)
         imap.store(email_id, "+FLAGS", "\\Deleted")
-        imap.expunge()  # Apply changes immediately
+        imap.expunge()
         imap.logout()
-
-        return {"message": f"Email {email_id} moved to Trash successfully"}
+        return {"message": f"Email {email_id} moved to Trash"}
 
     except Exception as e:
         return {"error": f"Failed to delete email {email_id}: {str(e)}"}
+
+def move_email(mailbox_email: str, email_id: str, from_folder: str, to_folder: str):
+    """ Move an email between folders like Spam -> Inbox, Inbox -> Archive, etc. """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get correct IMAP folder names
+        from_folder = get_imap_folder_name(imap, from_folder)
+        to_folder = get_imap_folder_name(imap, to_folder)
+
+        # Select the source folder
+        status, _ = imap.select(from_folder)
+        if status != "OK":
+            return {"error": f"Failed to select source folder: {from_folder}"}
+
+        # Search for email ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            return {"error": f"Email {email_id} not found in {from_folder}"}
+
+        # Move email
+        imap.copy(email_id, to_folder)
+        imap.store(email_id, "+FLAGS", "\\Deleted")  # Mark as deleted in old folder
+        imap.expunge()
+
+        imap.logout()
+        return {"message": f"Email {email_id} moved from {from_folder} to {to_folder}"}
+
+    except Exception as e:
+        return {"error": f"Failed to move email {email_id}: {str(e)}"}
+
+def empty_trash(mailbox_email: str):
+    """ Permanently delete all emails in the Trash folder """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get the correct Trash folder name
+        trash_folder = get_imap_folder_name(imap, "Trash")
+
+        # Select the Trash folder
+        status, messages = imap.select(trash_folder)
+        if status != "OK":
+            return {"error": f"Failed to select Trash folder: {trash_folder}"}
+
+        # Fetch all email IDs in Trash
+        _, messages = imap.search(None, "ALL")
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"message": "Trash is already empty"}
+
+        # Mark all emails for deletion
+        for eid in email_ids:
+            imap.store(eid, "+FLAGS", "\\Deleted")
+
+        # Expunge (permanently delete)
+        imap.expunge()
+        imap.logout()
+
+        return {"message": "Trash emptied successfully. All emails permanently deleted."}
+
+    except Exception as e:
+        return {"error": f"Failed to empty Trash: {str(e)}"}
+    
+def delete_email_from_trash(mailbox_email: str, email_id: str):
+    """ Permanently delete a specific email from the Trash folder """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get the correct Trash folder name
+        trash_folder = get_imap_folder_name(imap, "Trash")
+
+        # Select the Trash folder
+        status, messages = imap.select(trash_folder)
+        if status != "OK":
+            return {"error": f"Failed to select Trash folder: {trash_folder}"}
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found in Trash"}
+
+        # Mark email for deletion
+        for eid in email_ids:
+            imap.store(eid, "+FLAGS", "\\Deleted")
+
+        # Expunge (permanently delete)
+        imap.expunge()
+        imap.logout()
+
+        return {"message": f"Email {email_id} permanently deleted from Trash"}
+
+    except Exception as e:
+        return {"error": f"Failed to delete email {email_id} from Trash: {str(e)}"}
+
+
+def get_full_email_from_folder(mailbox_email: str, email_id: str, folder: str):
+    """ Fetch full email content including attachments from any folder """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get correct folder name
+        folder_name = get_imap_folder_name(imap, folder)
+
+        # Select folder
+        status, messages = imap.select(folder_name)
+        if status != "OK":
+            return {"error": f"Failed to select folder: {folder_name}"}
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found in {folder}"}
+
+        # Fetch full email
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        if not msg_data or msg_data[0] is None:
+            imap.logout()
+            return {"error": f"Failed to fetch full email: Email ID {email_id} may be invalid or missing"}
+
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Extract headers
+        subject, encoding = decode_header(msg["Subject"])[0]
+        if isinstance(subject, bytes):
+            subject = subject.decode(encoding or "utf-8")
+
+        sender = msg["From"]
+        date = msg["Date"]
+
+        # Extract email body
+        body = "No content available"
+        attachments = []
+        
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                content_disposition = str(part.get("Content-Disposition"))
+
+                if content_type == "text/plain" and "attachment" not in content_disposition:
+                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+                elif "attachment" in content_disposition:
+                    filename = part.get_filename()
+                    file_data = part.get_payload(decode=True)
+                    attachments.append({
+                        "filename": filename,
+                        "size": len(file_data)
+                    })
+        else:
+            body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+        imap.logout()
+
+        return {
+            "email_id": email_id,
+            "subject": subject,
+            "from": sender,
+            "date": date,
+            "body": body,
+            "attachments": attachments
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to fetch full email: {str(e)}"}
