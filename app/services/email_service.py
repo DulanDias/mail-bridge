@@ -960,3 +960,67 @@ def get_unread_count(mailbox_email: str):
 
     except Exception as e:
         return {"error": f"Failed to get unread count: {str(e)}"}
+    
+def search_emails(mailbox_email: str, search_criteria: str):
+        """ Search emails in the mailbox based on given criteria """
+
+        config = get_mailbox_config(mailbox_email)
+
+        try:
+            imap = imaplib.IMAP4_SSL(config["imap_server"])
+            imap.login(config["email"], config["password"])
+            imap.select("INBOX")
+
+            # Search emails based on criteria
+            status, messages = imap.search(None, search_criteria)
+            if status != "OK":
+                return {"error": f"Failed to search emails with criteria: {search_criteria}"}
+
+            email_ids = messages[0].split()
+            email_list = []
+
+            for eid in email_ids:
+                _, msg_data = imap.fetch(eid, "(RFC822)")
+                for response_part in msg_data:
+                    if isinstance(response_part, tuple):
+                        msg = email.message_from_bytes(response_part[1])
+
+                        # Extract subject and decode it properly
+                        subject, encoding = decode_header(msg["Subject"])[0]
+                        if isinstance(subject, bytes):
+                            subject = subject.decode(encoding or "utf-8")
+
+                        # Extract sender
+                        sender = msg["From"]
+
+                        # Extract date
+                        date = msg["Date"]
+
+                        # Extract a small preview of the email body
+                        body_preview = "No preview available"
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                content_type = part.get_content_type()
+                                content_disposition = str(part.get("Content-Disposition"))
+
+                                if content_type == "text/plain" and "attachment" not in content_disposition:
+                                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                    body_preview = body[:100]  # First 100 characters
+                                    break
+                        else:
+                            body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                            body_preview = body[:100]
+
+                        email_list.append({
+                            "email_id": eid.decode(),
+                            "subject": subject or "No Subject",
+                            "from": sender or "Unknown Sender",
+                            "date": date or "Unknown Date",
+                            "body_preview": body_preview
+                        })
+
+            imap.logout()
+            return {"emails": email_list}
+
+        except Exception as e:
+            return {"error": f"Failed to search emails: {str(e)}"}

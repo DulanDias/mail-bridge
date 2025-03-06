@@ -197,3 +197,8 @@ async def delete_draft(mailbox_email: str, email_id: str):
 async def get_unread_email_count(mailbox_email: str):
     """ Get the count of unread emails """
     return email_service.get_unread_email_count(mailbox_email)
+
+@router.get("/emails/search")
+async def search_emails(mailbox_email: str, query: str, page: int = 1, limit: int = 20):
+    """ Search emails based on a query """
+    return email_service.search_emails(mailbox_email, query, page, limit)
