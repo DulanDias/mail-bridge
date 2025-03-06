@@ -6,3 +6,4 @@ imaplib2
 celery
 slowapi
 pydantic
+email-validator
