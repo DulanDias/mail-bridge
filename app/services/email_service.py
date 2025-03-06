@@ -572,3 +572,63 @@ def get_full_email_from_folder(mailbox_email: str, email_id: str, folder: str):
 
     except Exception as e:
         return {"error": f"Failed to fetch full email: {str(e)}"}
+
+def mark_email_as_read(mailbox_email: str, email_id: str):
+    """ Mark an email as read in the mailbox """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select the INBOX
+        imap.select("INBOX")
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found in INBOX"}
+
+        # Mark email as read
+        for eid in email_ids:
+            imap.store(eid, "+FLAGS", "\\Seen")
+
+        imap.logout()
+        return {"message": f"Email {email_id} marked as read"}
+
+    except Exception as e:
+        return {"error": f"Failed to mark email {email_id} as read: {str(e)}"}
+    
+def mark_email_as_unread(mailbox_email: str, email_id: str):
+    """ Mark an email as unread in the mailbox """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select the INBOX
+        imap.select("INBOX")
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found in INBOX"}
+
+        # Mark email as unread
+        for eid in email_ids:
+            imap.store(eid, "-FLAGS", "\\Seen")
+
+        imap.logout()
+        return {"message": f"Email {email_id} marked as unread"}
+
+    except Exception as e:
+        return {"error": f"Failed to mark email {email_id} as unread: {str(e)}"}
