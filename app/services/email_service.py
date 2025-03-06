@@ -1,68 +1,129 @@
 import email
 import smtplib
-from app.services.celery_worker import celery
 import imaplib
 import aiosmtplib
+import traceback
+import asyncio
+import base64
 from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from email.header import decode_header
-from app.models import MailboxConfig
+from app.services.celery_worker import celery
 from app.services.redis_service import get_mailbox_config
+from app.models import MailboxConfig
 
 @celery.task
 def check_new_emails(mailbox_email: str):
     """ Background Task: Fetch New Emails """
-    config = get_mailbox_config(mailbox_email)
-    imap = imaplib.IMAP4_SSL(config["imap_server"])
-    imap.login(config["email"], config["password"])
-    imap.select("INBOX")
-    _, messages = imap.search(None, "UNSEEN")
-    email_ids = messages[0].split()
-    return {"unread_count": len(email_ids)}
+    try:
+        config = get_mailbox_config(mailbox_email)
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        imap.select("INBOX")
+        _, messages = imap.search(None, "UNSEEN")
+        email_ids = messages[0].split()
+        imap.logout()
+        return {"unread_count": len(email_ids)}
+    except Exception as e:
+        return {"error": f"Failed to check new emails: {str(e)}"}
 
 @celery.task
-def send_email_task(mailbox_email: str, email_data):
-    """ Background Task: Send Email via SMTP """
-    config = get_mailbox_config(mailbox_email)
-    msg = EmailMessage()
-    msg["From"] = config["email"]
-    msg["To"] = ", ".join(email_data.to)
-    msg["CC"] = ", ".join(email_data.cc)
-    msg["BCC"] = ", ".join(email_data.bcc)
-    msg["Subject"] = email_data.subject
-    msg.set_content(email_data.body)
+def send_email_task(mailbox_email: str, email_data: dict):
+    """ Background Task: Send Email via SMTP with Multi-Part (HTML + Plain Text) """
+    try:
+        config = get_mailbox_config(mailbox_email)
 
-    return aiosmtplib.send(msg, hostname=config["smtp_server"], port=587, username=config["email"], password=config["password"])
+        # Format sender email
+        sender_email = config["email"]
+        sender_name = email_data.get("from_name", sender_email)
+        formatted_sender = f"{sender_name} <{sender_email}>"
+
+        # Get recipient lists
+        to_recipients = email_data.get("to", [])
+        cc_recipients = email_data.get("cc", [])
+        bcc_recipients = email_data.get("bcc", [])
+        all_recipients = to_recipients + cc_recipients + bcc_recipients  # Combine all for SMTP
+
+        if not all_recipients:
+            return {"error": "No recipients provided"}
+
+        # Create Multi-Part Email Message
+        msg = MIMEMultipart("alternative")  # Ensures correct MIME structure
+        msg["From"] = formatted_sender
+        msg["To"] = ", ".join(to_recipients)
+        msg["CC"] = ", ".join(cc_recipients)
+        msg["BCC"] = ", ".join(bcc_recipients)
+        msg["Subject"] = email_data.get("subject", "No Subject")
+        msg["Reply-To"] = formatted_sender
+
+        # Get email content type from request (default to HTML)
+        content_type = email_data.get("content_type", "html").lower()
+
+        # Extract the email body
+        email_body = email_data.get("body", "")
+
+        # Add both plain text and HTML parts
+        plain_text_body = "This email requires an HTML-supported email client to view properly."
+        if content_type == "plain":
+            plain_text_body = email_body
+        elif content_type == "html":
+            msg.attach(MIMEText(plain_text_body, "plain"))
+            msg.attach(MIMEText(email_body, "html"))  # Add HTML body
+        else:
+            msg.attach(MIMEText(email_body, "plain"))  # Default to plain text if invalid type
+
+        # Process attachments (Decode from base64)
+        attachments = email_data.get("attachments", [])
+        for attachment in attachments:
+            try:
+                file_data = base64.b64decode(attachment["content"])
+                attachment_part = MIMEText(file_data, "base64", "utf-8")
+                attachment_part.add_header("Content-Disposition", f'attachment; filename="{attachment["filename"]}"')
+                msg.attach(attachment_part)
+            except Exception as e:
+                return {"error": f"Failed to process attachment {attachment['filename']}: {str(e)}"}
+
+        # Pass both `sender` and `recipients` explicitly in aiosmtplib.send()
+        response = asyncio.run(aiosmtplib.send(
+            msg.as_string(),  # Send as raw message
+            sender=sender_email, 
+            recipients=all_recipients,  
+            hostname=config["smtp_server"], port=587,
+            username=config["email"], password=config["password"]
+        ))
+
+        return {"message": "Email sent successfully", "response": str(response)}
+
+    except Exception as e:
+        return {"error": f"Failed to send email: {str(e)}", "traceback": traceback.format_exc()}
 
 def validate_mailbox(config: MailboxConfig):
     """ Validate IMAP/SMTP connection """
-
-    # Validate IMAP (incoming mail)
     try:
+        # Validate IMAP (incoming mail)
         imap = imaplib.IMAP4_SSL(config.imap_server)
         imap.login(config.email, config.password)
         imap.select("INBOX")
         imap.logout()
-    except Exception as e:
-        return False, f"IMAP Validation Failed: {str(e)}"
 
-    # Validate SMTP (outgoing mail)
-    try:
+        # Validate SMTP (outgoing mail)
         smtp = smtplib.SMTP(config.smtp_server, 587)
         smtp.starttls()
         smtp.login(config.email, config.password)
         smtp.quit()
-    except Exception as e:
-        return False, f"SMTP Validation Failed: {str(e)}"
 
-    return True, None
+        return True, None
+    except Exception as e:
+        return False, f"Validation Failed: {str(e)}"
 
 def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     """ Fetch emails from the mailbox using IMAP and return subject, sender, date, and partial email body """
 
-    # Retrieve stored mailbox configuration
-    config = get_mailbox_config(mailbox_email)
-
     try:
+        # Retrieve stored mailbox configuration
+        config = get_mailbox_config(mailbox_email)
+
         # Connect to IMAP server
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
@@ -113,9 +174,9 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
 
                     email_list.append({
                         "email_id": eid.decode(),
-                        "subject": subject,
-                        "from": sender,
-                        "date": date,
+                        "subject": subject or "No Subject",
+                        "from": sender or "Unknown Sender",
+                        "date": date or "Unknown Date",
                         "body_preview": body_preview
                     })
 
@@ -123,4 +184,4 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
         return {"emails": email_list}
 
     except Exception as e:
-        return {"error": f"Failed to fetch emails: {str(e)}"}
+        return {"error": f"Failed to fetch emails: {str(e)}", "traceback": traceback.format_exc()}

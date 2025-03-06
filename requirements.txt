@@ -7,3 +7,4 @@ celery
 slowapi
 pydantic
 email-validator
+python-multipart
