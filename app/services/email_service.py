@@ -807,3 +807,4 @@ def forward_email(mailbox_email: str, email_id: str, email_data):
 
     except Exception as e:
         return {"error": f"Failed to forward email: {str(e)}"}
+    
