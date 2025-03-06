@@ -93,6 +93,13 @@ def send_email_task(mailbox_email: str, email_data: dict):
             username=config["email"], password=config["password"]
         ))
 
+        # Save to Sent folder
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        sent_folder = get_imap_folder_name(imap, "Sent")
+        imap.append(sent_folder, None, None, msg.as_bytes())
+        imap.logout()
+
         return {"message": "Email sent successfully", "response": str(response)}
 
     except Exception as e:
