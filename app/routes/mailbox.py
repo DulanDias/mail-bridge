@@ -202,3 +202,8 @@ async def get_unread_email_count(mailbox_email: str):
 async def search_emails(mailbox_email: str, query: str, page: int = 1, limit: int = 20):
     """ Search emails based on a query """
     return email_service.search_emails(mailbox_email, query, page, limit)
+
+@router.get("/emails/attachments/{email_id}")
+async def fetch_email_attachments(mailbox_email: str, email_id: str):
+    """ Fetch attachments of a specific email """
+    return email_service.get_email_attachments(mailbox_email, email_id)

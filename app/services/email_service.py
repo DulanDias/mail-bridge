@@ -1024,3 +1024,46 @@ def search_emails(mailbox_email: str, search_criteria: str):
 
         except Exception as e:
             return {"error": f"Failed to search emails: {str(e)}"}
+        
+def get_email_attachments(mailbox_email: str, email_id: str):
+    """ Fetch attachments from a specific email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select INBOX
+        imap.select("INBOX")
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found"}
+
+        # Fetch the email
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Extract attachments
+        attachments = []
+        for part in msg.walk():
+            content_disposition = str(part.get("Content-Disposition"))
+            if "attachment" in content_disposition:
+                filename = part.get_filename()
+                file_data = part.get_payload(decode=True)
+                attachments.append({
+                    "filename": filename,
+                    "size": len(file_data),
+                    "content": base64.b64encode(file_data).decode("utf-8")
+                })
+
+        imap.logout()
+        return {"attachments": attachments}
+
+    except Exception as e:
+        return {"error": f"Failed to fetch attachments: {str(e)}"}
