@@ -720,3 +720,45 @@ def get_draft(mailbox_email: str, email_id: str):
 
     except Exception as e:
         return {"error": f"Failed to fetch draft: {str(e)}"}
+
+def reply_to_email(mailbox_email: str, email_id: str, email_data):
+    """ Reply to an email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select INBOX to fetch original email
+        imap.select("INBOX")
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Original email {email_id} not found"}
+
+        # Fetch original email
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Create reply
+        reply_msg = EmailMessage()
+        reply_msg["From"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
+        reply_msg["To"] = msg["From"]
+        reply_msg["Subject"] = f"Re: {msg['Subject']}"
+        reply_msg.set_content(email_data.get("body", ""))
+
+        # Send reply
+        asyncio.run(aiosmtplib.send(reply_msg.as_string(), hostname=config["smtp_server"], port=587, username=config["email"], password=config["password"]))
+
+        # Save reply in Sent folder
+        sent_folder = get_imap_folder_name(imap, "Sent")
+        imap.append(sent_folder, None, None, reply_msg.as_bytes())
+        imap.logout()
+
+        return {"message": "Reply sent successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to reply: {str(e)}"}

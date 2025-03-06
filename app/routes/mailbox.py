@@ -158,3 +158,8 @@ async def save_draft(mailbox_email: str, email_data: dict):
 async def fetch_draft(mailbox_email: str, email_id: str):
     """ Fetch a saved draft """
     return email_service.get_draft(mailbox_email, email_id)
+
+@router.post("/emails/reply/{email_id}")
+async def reply_email(mailbox_email: str, email_id: str, email_data: dict):
+    """ Reply to an email """
+    return email_service.reply_to_email(mailbox_email, email_id, email_data)
