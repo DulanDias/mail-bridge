@@ -1,4 +1,6 @@
 import email
+from email import policy
+from email.parser import BytesParser
 import smtplib
 import imaplib
 import aiosmtplib
