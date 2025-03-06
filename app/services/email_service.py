@@ -1,8 +1,10 @@
+import email
 import smtplib
 from app.services.celery_worker import celery
 import imaplib
 import aiosmtplib
 from email.message import EmailMessage
+from email.header import decode_header
 from app.models import MailboxConfig
 from app.services.redis_service import get_mailbox_config
 
@@ -55,13 +57,13 @@ def validate_mailbox(config: MailboxConfig):
     return True, None
 
 def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
-    """ Fetch emails from the mailbox using IMAP """
-    
+    """ Fetch emails from the mailbox using IMAP and return subject, sender, date, and partial email body """
+
     # Retrieve stored mailbox configuration
     config = get_mailbox_config(mailbox_email)
 
-    # Connect to IMAP server
     try:
+        # Connect to IMAP server
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
         imap.select("INBOX")
@@ -75,8 +77,47 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
         end = start + limit
         email_subset = email_ids[start:end]
 
-        # Format email list response
-        email_list = [{"email_id": eid.decode(), "subject": "Sample Subject"} for eid in email_subset]
+        email_list = []
+        
+        for eid in email_subset:
+            _, msg_data = imap.fetch(eid, "(RFC822)")
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+
+                    # Extract subject and decode it properly
+                    subject, encoding = decode_header(msg["Subject"])[0]
+                    if isinstance(subject, bytes):
+                        subject = subject.decode(encoding or "utf-8")
+
+                    # Extract sender
+                    sender = msg["From"]
+
+                    # Extract date
+                    date = msg["Date"]
+
+                    # Extract a small preview of the email body
+                    body_preview = "No preview available"
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            content_type = part.get_content_type()
+                            content_disposition = str(part.get("Content-Disposition"))
+
+                            if content_type == "text/plain" and "attachment" not in content_disposition:
+                                body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                body_preview = body[:100]  # First 100 characters
+                                break
+                    else:
+                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                        body_preview = body[:100]
+
+                    email_list.append({
+                        "email_id": eid.decode(),
+                        "subject": subject,
+                        "from": sender,
+                        "date": date,
+                        "body_preview": body_preview
+                    })
 
         imap.logout()
         return {"emails": email_list}
