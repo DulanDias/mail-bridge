@@ -148,3 +148,13 @@ async def empty_trash(mailbox_email: str):
 async def fetch_full_email_from_folder(mailbox_email: str, folder: str, email_id: str):
     """ Fetch full email content including attachments from any folder """
     return email_service.get_full_email_from_folder(mailbox_email, email_id, folder)
+
+@router.post("/emails/drafts/save")
+async def save_draft(mailbox_email: str, email_data: dict):
+    """ Save an email as a draft """
+    return email_service.save_draft(mailbox_email, email_data)
+
+@router.get("/emails/drafts/{email_id}")
+async def fetch_draft(mailbox_email: str, email_id: str):
+    """ Fetch a saved draft """
+    return email_service.get_draft(mailbox_email, email_id)

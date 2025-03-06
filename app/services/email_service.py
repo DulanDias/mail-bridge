@@ -632,3 +632,84 @@ def mark_email_as_unread(mailbox_email: str, email_id: str):
 
     except Exception as e:
         return {"error": f"Failed to mark email {email_id} as unread: {str(e)}"}
+    
+def save_draft(mailbox_email: str, email_data):
+    """ Save an email as a draft in the Drafts folder """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get the correct Drafts folder name
+        drafts_folder = get_imap_folder_name(imap, "Drafts")
+
+        # Create the email object
+        msg = EmailMessage()
+        msg["From"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
+        msg["To"] = ", ".join(email_data.get("to", []))
+        msg["Subject"] = email_data.get("subject", "")
+        msg.set_content(email_data.get("body", ""))
+
+        # Encode the message
+        raw_email = msg.as_bytes()
+
+        # Select Drafts folder and append the message
+        imap.append(drafts_folder, None, None, raw_email)
+        imap.logout()
+
+        return {"message": "Draft saved successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to save draft: {str(e)}"}
+
+
+def get_draft(mailbox_email: str, email_id: str):
+    """ Fetch a saved draft email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get the correct Drafts folder name
+        drafts_folder = get_imap_folder_name(imap, "Drafts")
+
+        # Select Drafts folder
+        status, _ = imap.select(drafts_folder)
+        if status != "OK":
+            return {"error": f"Failed to select Drafts folder"}
+
+        # Search for the draft by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Draft {email_id} not found"}
+
+        # Fetch draft content
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Extract details
+        subject, encoding = decode_header(msg["Subject"])[0]
+        if isinstance(subject, bytes):
+            subject = subject.decode(encoding or "utf-8")
+
+        sender = msg["From"]
+        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+        imap.logout()
+
+        return {
+            "email_id": email_id,
+            "subject": subject,
+            "from": sender,
+            "body": body
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to fetch draft: {str(e)}"}
