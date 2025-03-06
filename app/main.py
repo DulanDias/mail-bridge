@@ -10,7 +10,7 @@ app = FastAPI(
 # Include API routes
 app.include_router(mailbox.router, prefix="/api/v1/mailbox", tags=["Mailbox"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
-app.include_router(ws.router)
+app.include_router(ws.router, tags=["WebSocket"])
 app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["Background Tasks"])
 
 @app.get("/")

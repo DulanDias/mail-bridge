@@ -14,6 +14,7 @@ from email.header import decode_header
 from app.services.celery_worker import celery
 from app.services.redis_service import get_mailbox_config
 from app.models import MailboxConfig
+from app.routes.ws import notify_clients
 
 @celery.task
 def check_new_emails(mailbox_email: str):
@@ -26,6 +27,11 @@ def check_new_emails(mailbox_email: str):
         _, messages = imap.search(None, "UNSEEN")
         email_ids = messages[0].split()
         imap.logout()
+
+        # Notify WebSocket clients
+        new_emails = [{"email_id": eid.decode()} for eid in email_ids]
+        asyncio.run(notify_clients(mailbox_email, new_emails))
+
         return {"unread_count": len(email_ids)}
     except Exception as e:
         return {"error": f"Failed to check new emails: {str(e)}"}

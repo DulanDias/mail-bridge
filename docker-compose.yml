@@ -28,7 +28,7 @@ services:
     build: .
     container_name: celery-worker
     restart: always
-    command: celery -A app.services.email_service worker --loglevel=info
+    command: celery -A app.services.celery_worker worker --loglevel=info
     depends_on:
       - redis
     environment:

@@ -81,7 +81,7 @@ redis-server
 
 ### **4️⃣ Start Celery Worker**
 ```
-celery -A app.services.email_service worker --loglevel=info
+celery -A app.services.celery_worker worker --loglevel=info
 ```
 
 ### **5️⃣ Run FastAPI Server**
