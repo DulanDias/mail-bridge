@@ -850,3 +850,50 @@ def reply_all_email(mailbox_email: str, email_id: str):
 
     except Exception as e:
         return {"error": f"Failed to reply-all: {str(e)}"}
+    
+def update_draft(mailbox_email: str, email_id: str, email_data):
+    """ Update an existing draft email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get the correct Drafts folder name
+        drafts_folder = get_imap_folder_name(imap, "Drafts")
+
+        # Select Drafts folder
+        status, _ = imap.select(drafts_folder)
+        if status != "OK":
+            return {"error": f"Failed to select Drafts folder"}
+
+        # Search for the draft by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Draft {email_id} not found"}
+
+        # Delete the existing draft
+        for eid in email_ids:
+            imap.store(eid, "+FLAGS", "\\Deleted")
+
+        imap.expunge()
+
+        # Create a new draft message
+        msg = EmailMessage()
+        msg["From"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
+        msg["To"] = ", ".join(email_data.get("to", []))
+        msg["Subject"] = email_data.get("subject", "")
+        msg.set_content(email_data.get("body", ""))
+
+        # Save the updated draft
+        imap.append(drafts_folder, None, None, msg.as_bytes())
+        imap.logout()
+
+        return {"message": "Draft updated successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to update draft: {str(e)}"}

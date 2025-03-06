@@ -178,3 +178,8 @@ async def archive_email(mailbox_email: str, email_id: str):
 async def reply_all(mailbox_email: str, email_id: str, email_data: dict):
     """ Reply to all recipients of an email """
     return email_service.reply_all(mailbox_email, email_id, email_data)
+
+@router.put("/emails/drafts/{email_id}")
+async def update_draft(mailbox_email: str, email_id: str, email_data: dict):
+    """ Update a saved draft """
+    return email_service.update_draft(mailbox_email, email_id, email_data)
