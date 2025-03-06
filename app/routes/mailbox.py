@@ -1,5 +1,5 @@
 import base64
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from typing import List, Optional
 from app.services import email_service, redis_service
 from app.models import MailboxConfig
@@ -64,9 +64,12 @@ async def send_email(
 
     
 @router.post("/delete")
-async def delete_email(mailbox_email: str, email_id: str):
-    """ Delete an email (move to trash) """
-    return {"message": f"Email {email_id} deleted from {mailbox_email}"}
+async def delete_email(
+    mailbox_email: str = Query(..., description="Email address of the mailbox"),
+    email_id: str = Query(..., description="ID of the email to be deleted")
+):
+    """ Delete an email (move to Trash) """
+    return email_service.delete_email(mailbox_email, email_id)
 
 @router.post("/mark-read")
 async def mark_email_as_read(mailbox_email: str, email_id: str):

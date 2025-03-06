@@ -316,3 +316,25 @@ def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: 
 
     except Exception as e:
         return {"error": f"Failed to fetch emails from {folder}: {str(e)}"}
+
+def delete_email(mailbox_email: str, email_id: str):
+    """ Move an email to the Trash folder using IMAP """
+
+    # Retrieve stored mailbox configuration
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        # Connect to IMAP server
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        imap.select("INBOX")  # Select the inbox
+
+        # Move email to Trash (Flag for deletion)
+        imap.store(email_id, "+FLAGS", "\\Deleted")
+        imap.expunge()  # Apply changes immediately
+        imap.logout()
+
+        return {"message": f"Email {email_id} moved to Trash successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to delete email {email_id}: {str(e)}"}
