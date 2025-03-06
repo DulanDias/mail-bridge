@@ -5,7 +5,7 @@ router = APIRouter()
 
 active_connections = {}  # Track WebSockets per email
 
-@router.websocket("/")
+@router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """ WebSocket connection for multiple mailboxes """
     await websocket.accept()

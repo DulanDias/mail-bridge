@@ -98,7 +98,7 @@ import websockets
 import asyncio
 
 async def listen_for_emails():
-    async with websockets.connect("ws://localhost:8000/ws") as ws:
+    async with websockets.connect("ws://localhost:8000/api/v1/ws/ws") as ws:
         await ws.send('{"emails": ["user1@example.com", "user2@example.com"]}')
         while True:
             message = await ws.recv()

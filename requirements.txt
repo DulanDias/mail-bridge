@@ -8,3 +8,5 @@ slowapi
 pydantic
 email-validator
 python-multipart
+uvicorn[standard]
+websockets
