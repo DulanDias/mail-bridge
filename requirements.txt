@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+redis
+aiosmtplib
+imaplib2
+email
+celery
+slowapi
+pydantic
