@@ -1,9 +1,6 @@
 import redis
 import os
 
-# Redis Connection
-redis_client = redis.Redis(host="redis", port=6379, decode_responses=True)
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")  # Fallback to localhost
 
-# Default IMAP/SMTP settings for custom mailboxes
-DEFAULT_IMAP_PORT = 993
-DEFAULT_SMTP_PORT = 587
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
