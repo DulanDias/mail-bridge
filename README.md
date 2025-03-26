@@ -1,12 +1,12 @@
 # **📧 MailBridge - FastAPI Mailbox Backend**
-🚀 **MailBridge** is a powerful, scalable, and feature-rich **email management backend** built with **FastAPI**, **Redis**, **Celery**, and **WebSockets**. It allows seamless management of multiple mailboxes, real-time email notifications, and background email processing.
+🚀 **MailBridge** is a powerful, scalable, and feature-rich **email management backend** built with **FastAPI**, **Celery**, and **WebSockets**. It allows seamless management of multiple mailboxes, real-time email notifications, and background email processing.
 
 ---
 
 ## **📖 Features**
 ### **Multiple Mailboxes Support**
 - Manage multiple email accounts dynamically.
-- Store mailbox configurations securely in Redis.
+- Store mailbox configurations securely using **JWT tokens**.
 
 ### **IMAP & SMTP Integration**
 - Fetch, send, delete, and archive emails.
@@ -22,7 +22,6 @@
 - Background tasks for sending and checking emails.
 
 ### **Unread Email Counters**
-- Cached unread email counts per mailbox.
 - Efficiently fetch unread email counts.
 
 ### **Email Metadata Handling**
@@ -46,18 +45,16 @@
 - Detailed descriptions and examples for each endpoint.
 
 ### **Docker & Docker Compose Support**
-- Easily deployable with Redis and Celery.
+- Easily deployable with Celery.
 - Docker and Docker Compose configurations included.
 
 ---
 
 ## **🛠️ Tech Stack**
 - **Backend:** FastAPI (Python 3.10+)
-- **Database:** Redis (Caching & Background Tasks)
 - **Email Handling:** IMAP & SMTP (`imaplib`, `aiosmtplib`)
 - **Real-time Updates:** WebSockets (`fastapi.websockets`)
-- **Background Tasks:** Celery (with Redis as broker)
-- **Deployment:** Docker, Docker Compose
+- **Background Tasks:** Celery
 - **Security:** Rate Limiting (`slowapi`), Input Validation (`Pydantic`)
 
 ---
@@ -74,17 +71,12 @@ cd mail-bridge
 pip install -r requirements.txt
 ```
 
-### **3️⃣ Start Redis Server**
-```
-redis-server
-```
-
-### **4️⃣ Start Celery Worker**
+### **3️⃣ Start Celery Worker**
 ```
 celery -A app.services.celery_worker worker --loglevel=info
 ```
 
-### **5️⃣ Run FastAPI Server**
+### **4️⃣ Run FastAPI Server**
 ```
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```

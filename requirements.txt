@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-redis
 aiosmtplib
 imaplib2
 celery
@@ -10,5 +9,5 @@ email-validator
 python-multipart
 uvicorn[standard]
 websockets
-PyJWT  # Added PyJWT for JWT functionality
-cryptography  # Added cryptography for encryption
+PyJWT
+cryptography
