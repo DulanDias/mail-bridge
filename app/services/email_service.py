@@ -15,6 +15,7 @@ from app.services.celery_worker import celery
 from app.services.redis_service import get_mailbox_config
 from app.models import MailboxConfig
 from app.routes.ws import notify_clients
+import json
 
 @celery.task
 def check_new_emails(mailbox_email: str):
@@ -47,14 +48,24 @@ def send_email_task(mailbox_email: str, email_data: dict):
         sender_name = email_data.get("from_name", sender_email)
         formatted_sender = f"{sender_name} <{sender_email}>"
 
-        # Get recipient lists
+        # Parse recipient lists (ensure they are lists)
         to_recipients = email_data.get("to", [])
+        if isinstance(to_recipients, str):
+            to_recipients = json.loads(to_recipients)
+
         cc_recipients = email_data.get("cc", [])
+        if isinstance(cc_recipients, str):
+            cc_recipients = json.loads(cc_recipients)
+
         bcc_recipients = email_data.get("bcc", [])
+        if isinstance(bcc_recipients, str):
+            bcc_recipients = json.loads(bcc_recipients)
+
         all_recipients = to_recipients + cc_recipients + bcc_recipients  # Combine all for SMTP
 
         if not all_recipients:
             return {"error": "No recipients provided"}
+
 
         # Get email content type from request (default to HTML)
         content_type = email_data.get("content_type", "html").lower()
@@ -62,11 +73,11 @@ def send_email_task(mailbox_email: str, email_data: dict):
 
         # Create Email Message
         if content_type == "plain":
-            # ✅ Plain text email (no multipart)
+            # Plain text email (no multipart)
             msg = EmailMessage()
             msg.set_content(email_body)  # Only plain text
         else:
-            # ✅ Multi-Part Email with Plain Text & HTML
+            # Multi-Part Email with Plain Text & HTML
             msg = MIMEMultipart("alternative")
             msg.attach(MIMEText("This email requires an HTML-supported email client to view properly.", "plain"))
             msg.attach(MIMEText(email_body, "html"))
@@ -95,11 +106,11 @@ def send_email_task(mailbox_email: str, email_data: dict):
             read_receipt_email = email_data.get("read_receipt_email", sender_email)
             msg["Disposition-Notification-To"] = read_receipt_email
 
-        # ✅ Pass both `sender` and `recipients` explicitly in `aiosmtplib.send()`
+        # Send email via SMTP
         response = asyncio.run(aiosmtplib.send(
             msg.as_string(),  # Send as raw message
-            sender=sender_email,  # ✅ Explicitly pass sender email
-            recipients=all_recipients,  # ✅ Provide recipients explicitly
+            sender=sender_email,  # Explicitly pass sender email
+            recipients=all_recipients,  # Provide recipients explicitly
             hostname=config["smtp_server"], port=587,
             username=config["email"], password=config["password"]
         ))
