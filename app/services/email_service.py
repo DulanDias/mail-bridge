@@ -1428,3 +1428,36 @@ def get_starred_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     except Exception as e:
         return {"error": f"Failed to fetch starred emails: {str(e)}"}
 
+def get_email_recipients(mailbox_email: str, email_id: str):
+    """ Fetch the 'To' recipients of a specific email """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select INBOX
+        imap.select("INBOX")
+
+        # Search for the email by Message-ID
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found"}
+
+        # Fetch the email
+        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+
+        # Extract 'To' recipients
+        to_recipients = msg.get_all("To", [])
+        imap.logout()
+
+        return [recipient.strip() for recipient in to_recipients]
+
+    except Exception as e:
+        return {"error": f"Failed to fetch recipients: {str(e)}"}
+
