@@ -91,13 +91,13 @@ async def fetch_emails(mailbox_token: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails?mailbox_email=user@example.com&page=1&limit=20
     """
-    email, password = decode_jwt(mailbox_token)  # Decode token to get email and password
-    emails = email_service.get_emails(email, page, limit)
+    email, password, imap_server, smtp_server, imap_port, smtp_port = decode_jwt(mailbox_token)  # Decode token to get all values
+    emails = email_service.get_emails(mailbox_token, page, limit)  # Pass the token to the service
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(email, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(email, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(email, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
     return emails
 
 @router.get("/full-email/{email_id}")
