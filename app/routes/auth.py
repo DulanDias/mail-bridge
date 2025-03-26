@@ -19,7 +19,14 @@ async def login(config: MailboxConfig):
     success, error = validate_mailbox(config)
     if not success:
         raise HTTPException(status_code=400, detail=error)
-    token = generate_jwt(config.email, config.password)
+    token = generate_jwt(
+        config.email,
+        config.password,
+        config.imap_server,
+        config.smtp_server,
+        config.imap_port,
+        config.smtp_port
+    )
     return {"token": token}
 
 @router.get("/decode-token")

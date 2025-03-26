@@ -509,3 +509,23 @@ async def download_email_attachment(mailbox_email: str, email_id: str, attachmen
     GET /emails/attachment/download/12345/attachment1?mailbox_email=user@example.com
     """
     return email_service.download_email_attachment(mailbox_email, email_id, attachment_id)
+
+@router.post("/emails/{folder}/mark-read")
+async def mark_email_as_read_in_folder(mailbox_token: str, email_id: str, folder: str):
+    """ Mark an email as read in a specific folder """
+    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Seen", True)
+
+@router.post("/emails/{folder}/mark-unread")
+async def mark_email_as_unread_in_folder(mailbox_token: str, email_id: str, folder: str):
+    """ Mark an email as unread in a specific folder """
+    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Seen", False)
+
+@router.post("/emails/{folder}/star")
+async def star_email_in_folder(mailbox_token: str, email_id: str, folder: str):
+    """ Star an email in a specific folder """
+    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Flagged", True)
+
+@router.post("/emails/{folder}/unstar")
+async def unstar_email_in_folder(mailbox_token: str, email_id: str, folder: str):
+    """ Unstar an email in a specific folder """
+    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Flagged", False)

@@ -5,6 +5,8 @@ class MailboxConfig(BaseModel):
     email: EmailStr
     imap_server: str
     smtp_server: str
+    imap_port: int = 993  # Default IMAP port
+    smtp_port: int = 587  # Default SMTP port
     password: str  # Stored securely in Redis
 
 class EmailSendRequest(BaseModel):

@@ -19,8 +19,15 @@ import json
 
 def get_mailbox_config_from_token(token: str):
     """ Retrieve mailbox configuration from JWT token """
-    email, password = decode_jwt(token)
-    return {"email": email, "password": password}
+    email, password, imap_server, smtp_server, imap_port, smtp_port = decode_jwt(token)
+    return {
+        "email": email,
+        "password": password,
+        "imap_server": imap_server,
+        "smtp_server": smtp_server,
+        "imap_port": imap_port,
+        "smtp_port": smtp_port
+    }
 
 @celery.task
 def check_new_emails(mailbox_token: str):
@@ -1497,4 +1504,23 @@ def get_email_count(mailbox_token: str, folder: str):
 
     except Exception as e:
         return {"error": f"Failed to get email count for folder {folder}: {str(e)}"}
+
+def set_email_flag(mailbox_token: str, email_id: str, folder: str, flag: str, add: bool):
+    """ Set or unset a flag (e.g., \Seen, \Flagged) for an email in a specific folder """
+    config = get_mailbox_config_from_token(mailbox_token)
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"], config["imap_port"])
+        imap.login(config["email"], config["password"])
+        imap.select(folder)
+        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = messages[0].split()
+        if not email_ids:
+            imap.logout()
+            return {"error": f"Email {email_id} not found in {folder}"}
+        for eid in email_ids:
+            imap.store(eid, f"{'+' if add else '-'}FLAGS", flag)
+        imap.logout()
+        return {"message": f"Email {email_id} {'flagged' if add else 'unflagged'} with {flag} in {folder}"}
+    except Exception as e:
+        return {"error": f"Failed to update flag for email {email_id}: {str(e)}"}
 

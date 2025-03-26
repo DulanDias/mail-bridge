@@ -30,10 +30,16 @@ def decrypt_credentials(encrypted_data: str) -> tuple:
     email, password = unpadded_data.decode().split(":")
     return email, password
 
-def generate_jwt(email: str, password: str) -> str:
-    """ Generate a JWT token with encrypted credentials """
+def generate_jwt(email: str, password: str, imap_server: str, smtp_server: str, imap_port: int = 993, smtp_port: int = 587) -> str:
+    """ Generate a JWT token with encrypted credentials and server details """
     encrypted_credentials = encrypt_credentials(email, password)
-    payload = {"credentials": encrypted_credentials}
+    payload = {
+        "credentials": encrypted_credentials,
+        "imap_server": imap_server,
+        "smtp_server": smtp_server,
+        "imap_port": imap_port,
+        "smtp_port": smtp_port
+    }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 def decode_jwt(token: str) -> tuple:
@@ -41,7 +47,8 @@ def decode_jwt(token: str) -> tuple:
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         encrypted_credentials = payload["credentials"]
-        return decrypt_credentials(encrypted_credentials)
+        email, password = decrypt_credentials(encrypted_credentials)
+        return email, password, payload["imap_server"], payload["smtp_server"], payload["imap_port"], payload["smtp_port"]
     except jwt.ExpiredSignatureError:
         raise Exception("Token has expired")
     except jwt.InvalidTokenError:
