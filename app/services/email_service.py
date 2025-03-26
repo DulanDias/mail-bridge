@@ -1428,8 +1428,8 @@ def get_starred_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     except Exception as e:
         return {"error": f"Failed to fetch starred emails: {str(e)}"}
 
-def get_email_recipients(mailbox_email: str, email_id: str):
-    """ Fetch the 'To' recipients of a specific email """
+def get_email_recipients(mailbox_email: str, email_id: str, recipient_type: str = "To"):
+    """ Fetch the recipients of a specific email based on recipient type ('To', 'Cc', 'Bcc') """
 
     config = get_mailbox_config(mailbox_email)
 
@@ -1446,20 +1446,20 @@ def get_email_recipients(mailbox_email: str, email_id: str):
 
         if not email_ids:
             imap.logout()
-            return {"error": f"Email {email_id} not found"}
+            return []
 
         # Fetch the email
         _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
         msg = email.message_from_bytes(msg_data[0][1])
 
-        # Extract 'To' recipients
-        to_recipients = msg.get_all("To", [])
+        # Extract recipients based on the recipient type
+        recipients = msg.get_all(recipient_type, [])
         imap.logout()
 
-        return [recipient.strip() for recipient in to_recipients]
+        return [recipient.strip() for recipient in recipients]
 
     except Exception as e:
-        return {"error": f"Failed to fetch recipients: {str(e)}"}
+        return {"error": f"Failed to fetch {recipient_type} recipients: {str(e)}"}
 
 def get_email_count(mailbox_email: str, folder: str):
     """ Get the total number of emails in a specified folder """

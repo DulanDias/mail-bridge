@@ -100,7 +100,9 @@ async def fetch_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     """
     emails = email_service.get_emails(mailbox_email, page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
         email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
     return emails
 
@@ -123,7 +125,9 @@ async def fetch_full_email_from_folder(mailbox_email: str, folder: str, email_id
     GET /emails/inbox/full-email/12345?mailbox_email=user@example.com
     """
     email = email_service.get_full_email_from_folder(mailbox_email, email_id, folder)
-    email["to"] = email_service.get_email_recipients(mailbox_email, email_id)
+    email["to"] = email_service.get_email_recipients(mailbox_email, email_id, "To")
+    email["cc"] = email_service.get_email_recipients(mailbox_email, email_id, "Cc")
+    email["bcc"] = email_service.get_email_recipients(mailbox_email, email_id, "Bcc")
     email["flags"] = email_service.get_email_flags(mailbox_email, email_id)
     return email
 
@@ -222,7 +226,9 @@ async def fetch_inbox(mailbox_email: str, page: int = 1, limit: int = 20):
     """
     emails = email_service.get_emails_by_folder(mailbox_email, "INBOX", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
         email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
     return emails
 
@@ -236,7 +242,9 @@ async def fetch_trash(mailbox_email: str, page: int = 1, limit: int = 20):
     """
     emails = email_service.get_emails_by_folder(mailbox_email, "Trash", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
         email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
     return emails
 
@@ -250,7 +258,9 @@ async def fetch_spam(mailbox_email: str, page: int = 1, limit: int = 20):
     """
     emails = email_service.get_emails_by_folder(mailbox_email, "Spam", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
         email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
     return emails
 
@@ -264,7 +274,9 @@ async def fetch_drafts(mailbox_email: str, page: int = 1, limit: int = 20):
     """
     emails = email_service.get_emails_by_folder(mailbox_email, "Drafts", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
         email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
     return emails
 
@@ -278,7 +290,9 @@ async def fetch_sent(mailbox_email: str, page: int = 1, limit: int = 20):
     """
     emails = email_service.get_emails_by_folder(mailbox_email, "Sent", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
         email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
     return emails
 
@@ -292,7 +306,9 @@ async def fetch_archive(mailbox_email: str, page: int = 1, limit: int = 20):
     """
     emails = email_service.get_emails_by_folder(mailbox_email, "Archive", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
         email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
     return emails
 
