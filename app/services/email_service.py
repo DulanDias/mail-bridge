@@ -149,16 +149,23 @@ def validate_mailbox(config: MailboxConfig):
         imap.login(config.email, config.password)
         imap.select("INBOX")
         imap.logout()
+    except imaplib.IMAP4.error as e:
+        return False, f"IMAP Validation Failed: {str(e)}"
+    except Exception as e:
+        return False, f"IMAP Connection Error: {str(e)}"
 
+    try:
         # Validate SMTP (outgoing mail)
-        smtp = smtplib.SMTP(config.smtp_server, 587)
+        smtp = smtplib.SMTP(config.smtp_server, config.smtp_port)
         smtp.starttls()
         smtp.login(config.email, config.password)
         smtp.quit()
-
-        return True, None
+    except smtplib.SMTPAuthenticationError as e:
+        return False, f"SMTP Authentication Failed: {str(e)}"
     except Exception as e:
-        return False, f"Validation Failed: {str(e)}"
+        return False, f"SMTP Connection Error: {str(e)}"
+
+    return True, None
 
 def get_emails(mailbox_token: str, page: int = 1, limit: int = 20):
     """ Fetch emails from the mailbox using IMAP and return subject, sender, date, partial email body, 'to' list, and flags """
