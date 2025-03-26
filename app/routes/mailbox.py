@@ -98,7 +98,11 @@ async def fetch_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails?mailbox_email=user@example.com&page=1&limit=20
     """
-    return email_service.get_emails(mailbox_email, page, limit)
+    emails = email_service.get_emails(mailbox_email, page, limit)
+    for email in emails.get("emails", []):
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+    return emails
 
 @router.get("/full-email/{email_id}")
 async def fetch_full_email(mailbox_email: str, email_id: str):
@@ -118,7 +122,10 @@ async def fetch_full_email_from_folder(mailbox_email: str, folder: str, email_id
     Example:
     GET /emails/inbox/full-email/12345?mailbox_email=user@example.com
     """
-    return email_service.get_full_email_from_folder(mailbox_email, email_id, folder)
+    email = email_service.get_full_email_from_folder(mailbox_email, email_id, folder)
+    email["to"] = email_service.get_email_recipients(mailbox_email, email_id)
+    email["flags"] = email_service.get_email_flags(mailbox_email, email_id)
+    return email
 
 ### EMAIL MANAGEMENT ###
 @router.post("/delete")
@@ -213,7 +220,11 @@ async def fetch_inbox(mailbox_email: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails/inbox?mailbox_email=user@example.com&page=1&limit=20
     """
-    return email_service.get_emails_by_folder(mailbox_email, "INBOX", page, limit)
+    emails = email_service.get_emails_by_folder(mailbox_email, "INBOX", page, limit)
+    for email in emails.get("emails", []):
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+    return emails
 
 @router.get("/emails/trash")
 async def fetch_trash(mailbox_email: str, page: int = 1, limit: int = 20):
@@ -223,7 +234,11 @@ async def fetch_trash(mailbox_email: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails/trash?mailbox_email=user@example.com&page=1&limit=20
     """
-    return email_service.get_emails_by_folder(mailbox_email, "Trash", page, limit)
+    emails = email_service.get_emails_by_folder(mailbox_email, "Trash", page, limit)
+    for email in emails.get("emails", []):
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+    return emails
 
 @router.get("/emails/spam")
 async def fetch_spam(mailbox_email: str, page: int = 1, limit: int = 20):
@@ -233,7 +248,11 @@ async def fetch_spam(mailbox_email: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails/spam?mailbox_email=user@example.com&page=1&limit=20
     """
-    return email_service.get_emails_by_folder(mailbox_email, "Spam", page, limit)
+    emails = email_service.get_emails_by_folder(mailbox_email, "Spam", page, limit)
+    for email in emails.get("emails", []):
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+    return emails
 
 @router.get("/emails/drafts")
 async def fetch_drafts(mailbox_email: str, page: int = 1, limit: int = 20):
@@ -243,7 +262,11 @@ async def fetch_drafts(mailbox_email: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails/drafts?mailbox_email=user@example.com&page=1&limit=20
     """
-    return email_service.get_emails_by_folder(mailbox_email, "Drafts", page, limit)
+    emails = email_service.get_emails_by_folder(mailbox_email, "Drafts", page, limit)
+    for email in emails.get("emails", []):
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+    return emails
 
 @router.get("/emails/sent")
 async def fetch_sent(mailbox_email: str, page: int = 1, limit: int = 20):
@@ -253,7 +276,11 @@ async def fetch_sent(mailbox_email: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails/sent?mailbox_email=user@example.com&page=1&limit=20
     """
-    return email_service.get_emails_by_folder(mailbox_email, "Sent", page, limit)
+    emails = email_service.get_emails_by_folder(mailbox_email, "Sent", page, limit)
+    for email in emails.get("emails", []):
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+    return emails
 
 @router.get("/emails/archive")
 async def fetch_archive(mailbox_email: str, page: int = 1, limit: int = 20):
@@ -263,7 +290,11 @@ async def fetch_archive(mailbox_email: str, page: int = 1, limit: int = 20):
     Example:
     GET /emails/archive?mailbox_email=user@example.com&page=1&limit=20
     """
-    return email_service.get_emails_by_folder(mailbox_email, "Archive", page, limit)
+    emails = email_service.get_emails_by_folder(mailbox_email, "Archive", page, limit)
+    for email in emails.get("emails", []):
+        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"])
+        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+    return emails
 
 @router.get("/emails/starred")
 async def fetch_starred_emails(mailbox_email: str, page: int = 1, limit: int = 20):

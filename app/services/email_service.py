@@ -147,7 +147,7 @@ def validate_mailbox(config: MailboxConfig):
         return False, f"Validation Failed: {str(e)}"
 
 def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
-    """ Fetch emails from the mailbox using IMAP and return subject, sender, date, and partial email body """
+    """ Fetch emails from the mailbox using IMAP and return subject, sender, date, partial email body, 'to' list, and flags """
 
     try:
         # Retrieve stored mailbox configuration
@@ -206,7 +206,9 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
                         "subject": subject or "No Subject",
                         "from": sender or "Unknown Sender",
                         "date": date or "Unknown Date",
-                        "body_preview": body_preview
+                        "body_preview": body_preview,
+                        "to": [recipient.strip() for recipient in msg.get_all("To", [])],
+                        "flags": get_email_flags(mailbox_email, eid.decode())
                     })
 
         imap.logout()
@@ -299,7 +301,7 @@ def get_imap_folder_name(imap, folder_name):
 
 
 def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
-    """ Fetch emails from Sent, Trash, or Archive folders with pagination """
+    """ Fetch emails from a specific folder with pagination, including 'to' list and flags """
 
     # Retrieve stored mailbox configuration
     config = get_mailbox_config(mailbox_email)
@@ -368,7 +370,9 @@ def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: 
                         "subject": subject,
                         "from": sender,
                         "date": date,
-                        "body_preview": body_preview
+                        "body_preview": body_preview,
+                        "to": [recipient.strip() for recipient in msg.get_all("To", [])],
+                        "flags": get_email_flags(mailbox_email, eid.decode())
                     })
 
         imap.logout()
@@ -526,7 +530,7 @@ def delete_email_from_trash(mailbox_email: str, email_id: str):
 
 
 def get_full_email_from_folder(mailbox_email: str, email_id: str, folder: str):
-    """ Fetch full email content including attachments from any folder """
+    """ Fetch full email content including attachments, 'to' list, and flags """
 
     config = get_mailbox_config(mailbox_email)
 
@@ -596,7 +600,9 @@ def get_full_email_from_folder(mailbox_email: str, email_id: str, folder: str):
             "from": sender,
             "date": date,
             "body": body,
-            "attachments": attachments
+            "attachments": attachments,
+            "to": [recipient.strip() for recipient in msg.get_all("To", [])],
+            "flags": get_email_flags(mailbox_email, email_id)
         }
 
     except Exception as e:
