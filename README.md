@@ -209,10 +209,19 @@ docker-compose up -d
 |-------------|-----------|----------------|
 | `/check-new-emails` | `POST` | Manually trigger background email check |
 
+### **Authentication**
+| **Endpoint**      | **Method** | **Description**                          |
+|--------------------|-----------|------------------------------------------|
+| `/api/v1/auth/login` | `POST`   | Authenticate user and issue a JWT token |
+| `/api/v1/auth/validate` | `POST` | Validate IMAP/SMTP connection for a mailbox |
+| `/api/v1/auth/decode-token` | `GET` | Decode JWT token to retrieve credentials |
+
 ---
 
 ## **🔑 Authentication**
-- **JWT Tokens**: Mailbox configurations are now securely managed using JWT tokens. Each token contains encrypted credentials and server details.
+- **JWT Tokens**: Mailbox configurations are securely managed using JWT tokens. Each token contains encrypted credentials and server details.
+- **JWT Algorithm**: The tokens are signed using the **HS256** algorithm for security.
+- **Token Expiration**: Tokens expire after 15 minutes. If a token expires, the API will return a `401 Unauthorized` response with the message `"Token has expired"`. To obtain a new token, the user must re-login using the `/api/v1/auth/login` endpoint.
 
 ### **Environment Variables**
 | **Variable**      | **Description**                          | **Default**                  |

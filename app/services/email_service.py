@@ -145,7 +145,7 @@ def validate_mailbox(config: MailboxConfig):
     """ Validate IMAP/SMTP connection """
     try:
         # Validate IMAP (incoming mail)
-        imap = imaplib.IMAP4_SSL(config.imap_server)
+        imap = imaplib.IMAP4_SSL(config.imap_server, config.imap_port)  # Ensure correct port is used
         imap.login(config.email, config.password)
         imap.select("INBOX")
         imap.logout()
@@ -156,7 +156,7 @@ def validate_mailbox(config: MailboxConfig):
 
     try:
         # Validate SMTP (outgoing mail)
-        smtp = smtplib.SMTP(config.smtp_server, config.smtp_port)
+        smtp = smtplib.SMTP(config.smtp_server, config.smtp_port)  # Ensure correct port is used
         smtp.starttls()
         smtp.login(config.email, config.password)
         smtp.quit()
