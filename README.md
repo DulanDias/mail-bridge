@@ -211,6 +211,23 @@ docker-compose up -d
 
 ---
 
+## **🔑 Authentication**
+- **JWT Tokens**: Mailbox configurations are now securely managed using JWT tokens. Each token contains encrypted credentials and server details.
+
+### **Environment Variables**
+| **Variable**      | **Description**                          | **Default**                  |
+|--------------------|------------------------------------------|------------------------------|
+| `JWT_SECRET`       | Secret key for signing JWT tokens       | `your_jwt_secret_key`        |
+| `ENCRYPTION_KEY`   | 32-byte key for AES encryption          | `your_32_byte_encryption_key`|
+
+---
+
+## **🛠️ Dependencies**
+- `PyJWT`: For generating and decoding JWT tokens.
+- `cryptography`: For encrypting and decrypting mailbox credentials.
+
+---
+
 ## **📜 License**
 This project is licensed under the **MIT License**.
 

@@ -10,3 +10,5 @@ email-validator
 python-multipart
 uvicorn[standard]
 websockets
+PyJWT  # Added PyJWT for JWT functionality
+cryptography  # Added cryptography for encryption

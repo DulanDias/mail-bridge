@@ -1506,7 +1506,7 @@ def get_email_count(mailbox_token: str, folder: str):
         return {"error": f"Failed to get email count for folder {folder}: {str(e)}"}
 
 def set_email_flag(mailbox_token: str, email_id: str, folder: str, flag: str, add: bool):
-    """ Set or unset a flag (e.g., \Seen, \Flagged) for an email in a specific folder """
+    """ Set or unset a flag (e.g., \\Seen, \\Flagged) for an email in a specific folder """
     config = get_mailbox_config_from_token(mailbox_token)
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"], config["imap_port"])
