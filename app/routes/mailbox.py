@@ -1,7 +1,8 @@
 import base64
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from typing import List, Optional
-from app.services import email_service, redis_service
+from app.services import email_service
+from app.services.jwt_service import decode_jwt  # Updated import
 from app.models import MailboxConfig
 
 router = APIRouter()
@@ -9,24 +10,15 @@ router = APIRouter()
 ### MAILBOX CONFIGURATION ###
 @router.post("/config")
 async def configure_mailbox(config: MailboxConfig):
-    """
-    Store mailbox configuration securely in Redis.
-    
-    Example:
-    {
-        "email": "user@example.com",
-        "imap_server": "imap.example.com",
-        "smtp_server": "smtp.example.com",
-        "password": "password"
-    }
-    """
-    redis_service.store_mailbox_config(config)
-    return {"message": "Mailbox configured successfully"}
+    """ Store mailbox configuration securely """
+    # This endpoint may no longer be needed if JWT is used for all configurations.
+    # Consider removing or refactoring this endpoint.
+    pass
 
 ### EMAIL SENDING ###
 @router.post("/send")
 async def send_email(
-    mailbox_email: str = Form(...),
+    mailbox_token: str = Form(...),  # Updated to accept token instead of email
     from_name: Optional[str] = Form(None),
     to: List[str] = Form(...),
     cc: Optional[List[str]] = Form([]),
@@ -57,6 +49,7 @@ async def send_email(
     }
     """
     try:
+        email, password = decode_jwt(mailbox_token)  # Decode token to get email and password
         # Process attachments
         attachments_data = []
         if attachments:
@@ -70,7 +63,7 @@ async def send_email(
                 })
 
         email_data = {
-            "from_name": from_name if from_name else mailbox_email,
+            "from_name": from_name if from_name else email,
             "to": to,
             "cc": cc,
             "bcc": bcc,
@@ -83,7 +76,7 @@ async def send_email(
         }
 
         # Trigger Celery background task
-        email_service.send_email_task.delay(mailbox_email, email_data)
+        email_service.send_email_task.delay(mailbox_token, email_data)
 
         return {"message": "Email is being sent in the background"}
     except Exception as e:
@@ -91,19 +84,20 @@ async def send_email(
 
 ### EMAIL FETCHING ###
 @router.get("/emails")
-async def fetch_emails(mailbox_email: str, page: int = 1, limit: int = 20):
+async def fetch_emails(mailbox_token: str, page: int = 1, limit: int = 20):
     """
     Fetch emails for a specific mailbox.
     
     Example:
     GET /emails?mailbox_email=user@example.com&page=1&limit=20
     """
-    emails = email_service.get_emails(mailbox_email, page, limit)
+    email, password = decode_jwt(mailbox_token)  # Decode token to get email and password
+    emails = email_service.get_emails(email, page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_email, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_email, email["email_id"])
+        email["to"] = email_service.get_email_recipients(email, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(email, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(email, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(email, email["email_id"])
     return emails
 
 @router.get("/full-email/{email_id}")

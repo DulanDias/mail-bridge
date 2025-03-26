@@ -12,16 +12,22 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import decode_header
 from app.services.celery_worker import celery
-from app.services.redis_service import get_mailbox_config
+from app.services.jwt_service import decode_jwt
 from app.models import MailboxConfig
 from app.routes.ws import notify_clients
 import json
 
+def get_mailbox_config_from_token(token: str):
+    """ Retrieve mailbox configuration from JWT token """
+    email, password = decode_jwt(token)
+    return {"email": email, "password": password}
+
 @celery.task
-def check_new_emails(mailbox_email: str):
+def check_new_emails(mailbox_token: str):
     """ Background Task: Fetch New Emails """
     try:
-        config = get_mailbox_config(mailbox_email)
+        config = get_mailbox_config_from_token(mailbox_token)
+        mailbox_email = config["email"]  # Extract mailbox_email from token
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
         imap.select("INBOX")
@@ -38,10 +44,11 @@ def check_new_emails(mailbox_email: str):
         return {"error": f"Failed to check new emails: {str(e)}"}
 
 @celery.task
-def send_email_task(mailbox_email: str, email_data: dict):
+def send_email_task(mailbox_token: str, email_data: dict):
     """ Background Task: Send Email via SMTP with Multi-Part (HTML + Plain Text) """
     try:
-        config = get_mailbox_config(mailbox_email)
+        config = get_mailbox_config_from_token(mailbox_token)
+        mailbox_email = config["email"]  # Extract mailbox_email from token
 
         # Format sender email
         sender_email = config["email"]
@@ -146,12 +153,12 @@ def validate_mailbox(config: MailboxConfig):
     except Exception as e:
         return False, f"Validation Failed: {str(e)}"
 
-def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
+def get_emails(mailbox_token: str, page: int = 1, limit: int = 20):
     """ Fetch emails from the mailbox using IMAP and return subject, sender, date, partial email body, 'to' list, and flags """
 
     try:
         # Retrieve stored mailbox configuration
-        config = get_mailbox_config(mailbox_email)
+        config = get_mailbox_config_from_token(mailbox_token)
 
         # Connect to IMAP server
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -208,7 +215,7 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
                         "date": date or "Unknown Date",
                         "body_preview": body_preview,
                         "to": [recipient.strip() for recipient in msg.get_all("To", [])],
-                        "flags": get_email_flags(mailbox_email, eid.decode())
+                        "flags": get_email_flags(mailbox_token, eid.decode())
                     })
 
         imap.logout()
@@ -217,11 +224,11 @@ def get_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     except Exception as e:
         return {"error": f"Failed to fetch emails: {str(e)}", "traceback": traceback.format_exc()}
 
-def get_full_email_from_inbox(mailbox_email: str, email_id: str):
+def get_full_email_from_inbox(mailbox_token: str, email_id: str):
     """ Fetch the full email including HTML body & attachments """
 
     # Retrieve stored mailbox configuration
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         # Connect to IMAP server
@@ -300,11 +307,11 @@ def get_imap_folder_name(imap, folder_name):
         return folder_name  # Fallback to requested folder
 
 
-def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: int = 20):
+def get_emails_by_folder(mailbox_token: str, folder: str, page: int = 1, limit: int = 20):
     """ Fetch emails from a specific folder with pagination, including 'to' list and flags """
 
     # Retrieve stored mailbox configuration
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         # Connect to IMAP server
@@ -372,7 +379,7 @@ def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: 
                         "date": date,
                         "body_preview": body_preview,
                         "to": [recipient.strip() for recipient in msg.get_all("To", [])],
-                        "flags": get_email_flags(mailbox_email, eid.decode())
+                        "flags": get_email_flags(mailbox_token, eid.decode())
                     })
 
         imap.logout()
@@ -382,10 +389,10 @@ def get_emails_by_folder(mailbox_email: str, folder: str, page: int = 1, limit: 
         return {"error": f"Failed to fetch emails from {folder}: {str(e)}"}
 
 
-def delete_email(mailbox_email: str, email_id: str):
+def delete_email(mailbox_token: str, email_id: str):
     """ Move an email to the Trash folder first. If it's already in Trash, permanently delete it. """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -399,8 +406,9 @@ def delete_email(mailbox_email: str, email_id: str):
         if status == "OK":
             _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
             if messages[0]:
-                # If in Trash, permanently delete
-                imap.store(email_id, "+FLAGS", "\\Deleted")
+                # If in Trash, append the \Deleted flag
+                for eid in messages[0].split():
+                    imap.store(eid, "+FLAGS", "\\Deleted")
                 imap.expunge()
                 imap.logout()
                 return {"message": f"Email {email_id} permanently deleted from Trash"}
@@ -408,7 +416,8 @@ def delete_email(mailbox_email: str, email_id: str):
         # Otherwise, move to Trash
         imap.select("INBOX")
         imap.copy(email_id, trash_folder)
-        imap.store(email_id, "+FLAGS", "\\Deleted")
+        for eid in messages[0].split():
+            imap.store(eid, "+FLAGS", "\\Deleted")
         imap.expunge()
         imap.logout()
         return {"message": f"Email {email_id} moved to Trash"}
@@ -416,10 +425,10 @@ def delete_email(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to delete email {email_id}: {str(e)}"}
 
-def move_email(mailbox_email: str, email_id: str, from_folder: str, to_folder: str):
+def move_email(mailbox_token: str, email_id: str, from_folder: str, to_folder: str):
     """ Move an email between folders like Spam -> Inbox, Inbox -> Archive, etc. """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -452,10 +461,10 @@ def move_email(mailbox_email: str, email_id: str, from_folder: str, to_folder: s
     except Exception as e:
         return {"error": f"Failed to move email {email_id}: {str(e)}"}
 
-def empty_trash(mailbox_email: str):
+def empty_trash(mailbox_token: str):
     """ Permanently delete all emails in the Trash folder """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -490,10 +499,10 @@ def empty_trash(mailbox_email: str):
     except Exception as e:
         return {"error": f"Failed to empty Trash: {str(e)}"}
     
-def delete_email_from_trash(mailbox_email: str, email_id: str):
+def delete_email_from_trash(mailbox_token: str, email_id: str):
     """ Permanently delete a specific email from the Trash folder """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -515,7 +524,7 @@ def delete_email_from_trash(mailbox_email: str, email_id: str):
             imap.logout()
             return {"error": f"Email {email_id} not found in Trash"}
 
-        # Mark email for deletion
+        # Append the \Deleted flag
         for eid in email_ids:
             imap.store(eid, "+FLAGS", "\\Deleted")
 
@@ -529,10 +538,10 @@ def delete_email_from_trash(mailbox_email: str, email_id: str):
         return {"error": f"Failed to delete email {email_id} from Trash: {str(e)}"}
 
 
-def get_full_email_from_folder(mailbox_email: str, email_id: str, folder: str):
+def get_full_email_from_folder(mailbox_token: str, email_id: str, folder: str):
     """ Fetch full email content including attachments, 'to' list, and flags """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -602,16 +611,16 @@ def get_full_email_from_folder(mailbox_email: str, email_id: str, folder: str):
             "body": body,
             "attachments": attachments,
             "to": [recipient.strip() for recipient in msg.get_all("To", [])],
-            "flags": get_email_flags(mailbox_email, email_id)
+            "flags": get_email_flags(mailbox_token, email_id)
         }
 
     except Exception as e:
         return {"error": f"Failed to fetch full email: {str(e)}"}
 
-def mark_email_as_read(mailbox_email: str, email_id: str):
+def mark_email_as_read(mailbox_token: str, email_id: str):
     """ Mark an email as read in the mailbox """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -638,10 +647,10 @@ def mark_email_as_read(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to mark email {email_id} as read: {str(e)}"}
     
-def mark_email_as_unread(mailbox_email: str, email_id: str):
+def mark_email_as_unread(mailbox_token: str, email_id: str):
     """ Mark an email as unread in the mailbox """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -668,10 +677,10 @@ def mark_email_as_unread(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to mark email {email_id} as unread: {str(e)}"}
     
-def save_draft(mailbox_email: str, email_data):
+def save_draft(mailbox_token: str, email_data):
     """ Save an email as a draft in the Drafts folder """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -700,10 +709,10 @@ def save_draft(mailbox_email: str, email_data):
         return {"error": f"Failed to save draft: {str(e)}"}
 
 
-def get_draft(mailbox_email: str, email_id: str):
+def get_draft(mailbox_token: str, email_id: str):
     """ Fetch a saved draft email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -749,10 +758,10 @@ def get_draft(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to fetch draft: {str(e)}"}
 
-def reply_to_email(mailbox_email: str, email_id: str, email_data):
+def reply_to_email(mailbox_token: str, email_id: str, email_data):
     """ Reply to an email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -791,10 +800,10 @@ def reply_to_email(mailbox_email: str, email_id: str, email_data):
     except Exception as e:
         return {"error": f"Failed to reply: {str(e)}"}
 
-def forward_email(mailbox_email: str, email_id: str, email_data):
+def forward_email(mailbox_token: str, email_id: str, email_data):
     """ Forward an email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -836,10 +845,10 @@ def forward_email(mailbox_email: str, email_id: str, email_data):
     except Exception as e:
         return {"error": f"Failed to forward email: {str(e)}"}
     
-def reply_all_email(mailbox_email: str, email_id: str):
+def reply_all_email(mailbox_token: str, email_id: str):
     """ Reply to all recipients of an email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -879,10 +888,10 @@ def reply_all_email(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to reply-all: {str(e)}"}
     
-def update_draft(mailbox_email: str, email_id: str, email_data):
+def update_draft(mailbox_token: str, email_id: str, email_data):
     """ Update an existing draft email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -926,10 +935,10 @@ def update_draft(mailbox_email: str, email_id: str, email_data):
     except Exception as e:
         return {"error": f"Failed to update draft: {str(e)}"}
 
-def delete_draft(mailbox_email: str, email_id: str):
+def delete_draft(mailbox_token: str, email_id: str):
     """ Delete a draft email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -964,10 +973,10 @@ def delete_draft(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to delete draft: {str(e)}"}
     
-def get_unread_count(mailbox_email: str):
+def get_unread_count(mailbox_token: str):
     """ Get the total number of unread emails in the mailbox """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -984,10 +993,10 @@ def get_unread_count(mailbox_email: str):
     except Exception as e:
         return {"error": f"Failed to get unread count: {str(e)}"}
     
-def search_emails(mailbox_email: str, search_criteria: str):
+def search_emails(mailbox_token: str, search_criteria: str):
         """ Search emails in the mailbox based on given criteria """
 
-        config = get_mailbox_config(mailbox_email)
+        config = get_mailbox_config_from_token(mailbox_token)
 
         try:
             imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1048,10 +1057,10 @@ def search_emails(mailbox_email: str, search_criteria: str):
         except Exception as e:
             return {"error": f"Failed to search emails: {str(e)}"}
         
-def get_email_attachments(mailbox_email: str, email_id: str):
+def get_email_attachments(mailbox_token: str, email_id: str):
     """ Fetch attachments from a specific email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1091,10 +1100,10 @@ def get_email_attachments(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to fetch attachments: {str(e)}"}
     
-def star_email(mailbox_email: str, email_id: str):
+def star_email(mailbox_token: str, email_id: str):
     """ Star an email in the mailbox """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1121,10 +1130,10 @@ def star_email(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to star email {email_id}: {str(e)}"}
 
-def unstar_email(mailbox_email: str, email_id: str):
+def unstar_email(mailbox_token: str, email_id: str):
     """ Unstar an email in the mailbox """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1152,10 +1161,10 @@ def unstar_email(mailbox_email: str, email_id: str):
         return {"error": f"Failed to unstar email {email_id}: {str(e)}"}
 
         
-def get_email_attachment(mailbox_email: str, email_id: str, attachment_id: str):
+def get_email_attachment(mailbox_token: str, email_id: str, attachment_id: str):
     """ Fetch a specific attachment from an email by attachment ID """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1196,10 +1205,10 @@ def get_email_attachment(mailbox_email: str, email_id: str, attachment_id: str):
     except Exception as e:
         return {"error": f"Failed to fetch attachment: {str(e)}"}
             
-def download_email_attachment(mailbox_email: str, email_id: str, attachment_id: str):
+def download_email_attachment(mailbox_token: str, email_id: str, attachment_id: str):
     """ Download a specific attachment from an email by attachment ID """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1240,10 +1249,10 @@ def download_email_attachment(mailbox_email: str, email_id: str, attachment_id: 
     except Exception as e:
         return {"error": f"Failed to fetch attachment: {str(e)}"}
     
-def filter_emails(mailbox_email: str, filter_type: str, page: int = 1, limit: int = 20):
+def filter_emails(mailbox_token: str, filter_type: str, page: int = 1, limit: int = 20):
     """ Filter emails in the mailbox based on the filter type """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1324,10 +1333,10 @@ def filter_emails(mailbox_email: str, filter_type: str, page: int = 1, limit: in
     except Exception as e:
         return {"error": f"Failed to filter emails: {str(e)}"}
         
-def get_email_flags(mailbox_email: str, email_id: str):
+def get_email_flags(mailbox_token: str, email_id: str):
     """ Get the flags of a specific email """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1354,10 +1363,10 @@ def get_email_flags(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to fetch email flags: {str(e)}"}
     
-def get_starred_emails(mailbox_email: str, page: int = 1, limit: int = 20):
+def get_starred_emails(mailbox_token: str, page: int = 1, limit: int = 20):
     """ Fetch starred emails with pagination """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1428,10 +1437,10 @@ def get_starred_emails(mailbox_email: str, page: int = 1, limit: int = 20):
     except Exception as e:
         return {"error": f"Failed to fetch starred emails: {str(e)}"}
 
-def get_email_recipients(mailbox_email: str, email_id: str, recipient_type: str = "To"):
+def get_email_recipients(mailbox_token: str, email_id: str, recipient_type: str = "To"):
     """ Fetch the recipients of a specific email based on recipient type ('To', 'Cc', 'Bcc') """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -1461,10 +1470,10 @@ def get_email_recipients(mailbox_email: str, email_id: str, recipient_type: str 
     except Exception as e:
         return {"error": f"Failed to fetch {recipient_type} recipients: {str(e)}"}
 
-def get_email_count(mailbox_email: str, folder: str):
+def get_email_count(mailbox_token: str, folder: str):
     """ Get the total number of emails in a specified folder """
 
-    config = get_mailbox_config(mailbox_email)
+    config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
