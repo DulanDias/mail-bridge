@@ -306,6 +306,16 @@ async def fetch_starred_emails(mailbox_email: str, page: int = 1, limit: int = 2
     """
     return email_service.get_starred_emails(mailbox_email, page, limit)
 
+@router.get("/emails/{folder}/count")
+async def get_email_count(mailbox_email: str, folder: str):
+    """
+    Get the total number of emails in a specified folder.
+    
+    Example:
+    GET /emails/inbox/count?mailbox_email=user@example.com
+    """
+    return email_service.get_email_count(mailbox_email, folder)
+
 ### EMAIL DRAFTS ###
 @router.post("/emails/drafts/save")
 async def save_draft(mailbox_email: str, email_data: dict):

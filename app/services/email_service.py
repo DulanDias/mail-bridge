@@ -1461,3 +1461,31 @@ def get_email_recipients(mailbox_email: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to fetch recipients: {str(e)}"}
 
+def get_email_count(mailbox_email: str, folder: str):
+    """ Get the total number of emails in a specified folder """
+
+    config = get_mailbox_config(mailbox_email)
+
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Get the correct folder name
+        folder_name = get_imap_folder_name(imap, folder)
+
+        # Select the folder
+        status, messages = imap.select(folder_name)
+        if status != "OK":
+            return {"error": f"Failed to select folder: {folder_name}"}
+
+        # Count the total number of emails
+        _, messages = imap.search(None, "ALL")
+        email_ids = messages[0].split()
+        total_count = len(email_ids)
+
+        imap.logout()
+        return {"folder": folder, "total_count": total_count}
+
+    except Exception as e:
+        return {"error": f"Failed to get email count for folder {folder}: {str(e)}"}
+
