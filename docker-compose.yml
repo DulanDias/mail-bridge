@@ -9,6 +9,7 @@ services:
       - "8000:8000"
     depends_on:
       - celery
+      - redis
     networks:
       - backend
 
@@ -17,6 +18,17 @@ services:
     container_name: celery-worker
     restart: always
     command: celery -A app.services.celery_worker worker --loglevel=info
+    depends_on:
+      - redis
+    networks:
+      - backend
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
     networks:
       - backend
 
