@@ -1,6 +1,10 @@
 import jwt
 from datetime import datetime, timedelta
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Secret keys for JWT signing
 JWT_SECRET = os.getenv("JWT_SECRET", "your_jwt_secret_key")
@@ -18,12 +22,16 @@ def generate_jwt(email: str, password: str, imap_server: str, smtp_server: str, 
         "smtp_port": smtp_port,
         "exp": datetime.utcnow() + timedelta(minutes=JWT_EXPIRATION_MINUTES)  # Expiration time
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    logging.debug(f"Generated JWT: {token}")
+    return token
 
 def decode_jwt(token: str) -> tuple:
     """ Decode JWT token and retrieve credentials """
     try:
+        logging.debug(f"Decoding JWT token: {token}")
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        logging.debug(f"Decoded JWT payload: {payload}")
         return (
             payload["email"],
             payload["password"],
@@ -33,6 +41,8 @@ def decode_jwt(token: str) -> tuple:
             payload["smtp_port"]
         )
     except jwt.ExpiredSignatureError:
+        logging.error("Token has expired")
         raise Exception("Token has expired")
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        logging.error(f"Invalid token: {str(e)}")
         raise Exception("Invalid token")

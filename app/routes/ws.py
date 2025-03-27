@@ -8,9 +8,9 @@ active_connections = {}  # Track WebSockets per email
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str):
-    """ WebSocket connection for multiple mailboxes using tokens """
+    """ WebSocket connection using mailbox_token """
     try:
-        # Decode the token to get the email
+        # Unpack all six values returned by decode_jwt
         email, _, _, _, _, _ = decode_jwt(token)
     except Exception as e:
         await websocket.close(code=4001)  # Close WebSocket with error code

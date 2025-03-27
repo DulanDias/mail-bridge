@@ -15,6 +15,14 @@ async def configure_mailbox(config: MailboxConfig):
     # Consider removing or refactoring this endpoint.
     pass
 
+@router.post("/validate")
+async def validate_mailbox_connection(mailbox_token: str):
+    """ Validate IMAP/SMTP connection using mailbox_token """
+    success, error = email_service.validate_mailbox(mailbox_token)
+    if not success:
+        raise HTTPException(status_code=400, detail=error)
+    return {"message": "Mailbox connection is valid"}
+
 ### EMAIL SENDING ###
 @router.post("/send")
 async def send_email(
@@ -49,7 +57,8 @@ async def send_email(
     }
     """
     try:
-        email, password = decode_jwt(mailbox_token)  # Decode token to get email and password
+        # Unpack all six values returned by decode_jwt
+        email, password, imap_server, smtp_server, imap_port, smtp_port = decode_jwt(mailbox_token)
         # Process attachments
         attachments_data = []
         if attachments:

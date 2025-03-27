@@ -212,8 +212,7 @@ docker-compose up -d
 
 ## **🔑 Authentication**
 - **JWT Tokens**: Mailbox configurations are securely managed using JWT tokens. Each token contains encrypted credentials and server details.
-- **JWT Algorithm**: The tokens are signed using the **HS256** algorithm for security.
-- **Token Expiration**: Tokens expire after 15 minutes. If a token expires, the API will return a `401 Unauthorized` response with the message `"Token has expired"`. To obtain a new token, the user must re-login using the `/api/v1/auth/login` endpoint.
+- **Token Expiration**: Tokens expire after 15 minutes. If a token expires, the API will return a `401 Unauthorized` response with the message `"Token has expired"`.
 
 ### **Environment Variables**
 | **Variable**      | **Description**                          | **Default**                  |

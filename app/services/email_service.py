@@ -16,17 +16,21 @@ from app.services.jwt_service import decode_jwt
 from app.models import MailboxConfig
 from app.routes.ws import notify_clients
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
 def get_mailbox_config_from_token(token: str):
     """ Retrieve mailbox configuration from JWT token """
     email, password, imap_server, smtp_server, imap_port, smtp_port = decode_jwt(token)
     return {
-        "email": email,
-        "password": password,
-        "imap_server": imap_server,
-        "smtp_server": smtp_server,
-        "imap_port": imap_port,
-        "smtp_port": smtp_port
+            "email": email,
+            "password": password,
+            "imap_server": imap_server,
+            "smtp_server": smtp_server,
+            "imap_port": imap_port,
+            "smtp_port": smtp_port
     }
 
 @celery.task
@@ -54,11 +58,12 @@ def check_new_emails(mailbox_token: str):
 def send_email_task(mailbox_token: str, email_data: dict):
     """ Background Task: Send Email via SMTP with Multi-Part (HTML + Plain Text) """
     try:
+        # Decode the token to get mailbox configuration
         config = get_mailbox_config_from_token(mailbox_token)
         mailbox_email = config["email"]  # Extract mailbox_email from token
 
         # Format sender email
-        sender_email = config["email"]
+        sender_email = mailbox_email
         sender_name = email_data.get("from_name", sender_email)
         formatted_sender = f"{sender_name} <{sender_email}>"
 
@@ -79,7 +84,6 @@ def send_email_task(mailbox_token: str, email_data: dict):
 
         if not all_recipients:
             return {"error": "No recipients provided"}
-
 
         # Get email content type from request (default to HTML)
         content_type = email_data.get("content_type", "html").lower()
@@ -123,9 +127,9 @@ def send_email_task(mailbox_token: str, email_data: dict):
         # Send email via SMTP
         response = asyncio.run(aiosmtplib.send(
             msg.as_string(),  # Send as raw message
-            sender=sender_email,  # Explicitly pass sender email
+            sender=config["email"],  # Explicitly pass sender email
             recipients=all_recipients,  # Provide recipients explicitly
-            hostname=config["smtp_server"], port=587,
+            hostname=config["smtp_server"], port=config["smtp_port"],
             username=config["email"], password=config["password"]
         ))
 
@@ -142,27 +146,32 @@ def send_email_task(mailbox_token: str, email_data: dict):
         return {"error": f"Failed to send email: {str(e)}", "traceback": traceback.format_exc()}
 
 def validate_mailbox(config: MailboxConfig):
-    """ Validate IMAP/SMTP connection """
+    """ Validate IMAP/SMTP connection using mailbox configuration """
     try:
-        # Validate IMAP (incoming mail)
-        imap = imaplib.IMAP4_SSL(config.imap_server, config.imap_port)  # Ensure correct port is used
+        logging.debug(f"Validating mailbox config: {config}")
+        # Validate IMAP
+        imap = imaplib.IMAP4_SSL(config.imap_server, config.imap_port)
         imap.login(config.email, config.password)
         imap.select("INBOX")
         imap.logout()
     except imaplib.IMAP4.error as e:
+        logging.error(f"IMAP Validation Failed: {str(e)}")
         return False, f"IMAP Validation Failed: {str(e)}"
     except Exception as e:
+        logging.error(f"IMAP Connection Error: {str(e)}")
         return False, f"IMAP Connection Error: {str(e)}"
 
     try:
-        # Validate SMTP (outgoing mail)
-        smtp = smtplib.SMTP(config.smtp_server, config.smtp_port)  # Ensure correct port is used
+        # Validate SMTP
+        smtp = smtplib.SMTP(config.smtp_server, config.smtp_port)
         smtp.starttls()
         smtp.login(config.email, config.password)
         smtp.quit()
     except smtplib.SMTPAuthenticationError as e:
+        logging.error(f"SMTP Authentication Failed: {str(e)}")
         return False, f"SMTP Authentication Failed: {str(e)}"
     except Exception as e:
+        logging.error(f"SMTP Connection Error: {str(e)}")
         return False, f"SMTP Connection Error: {str(e)}"
 
     return True, None
