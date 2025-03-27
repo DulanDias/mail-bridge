@@ -4,6 +4,7 @@ from typing import List, Optional
 from app.services import email_service
 from app.services.jwt_service import decode_jwt
 from app.models import DraftEmail, MailboxConfig  # Add MailboxConfig to the imports
+from fastapi.openapi.models import APIKey
 
 router = APIRouter()
 
@@ -31,19 +32,34 @@ async def validate_mailbox_connection(mailbox_token: str):
     return {"message": "Mailbox connection is valid"}
 
 ### EMAIL SENDING ###
-@router.post("/send")
+@router.post(
+    "/send",
+    summary="Send an email",
+    description="Send an email via SMTP with optional attachments.",
+    responses={
+        200: {"description": "Email is being sent in the background"},
+        400: {"description": "Invalid input or missing fields"},
+    },
+)
 async def send_email(
-    authorization: str = Header(...),
+    authorization: str = Header(
+        ...,
+        description="Bearer token for authentication",
+        example="Bearer <your_jwt_token>"
+    ),
     from_name: Optional[str] = Form(None),
-    to: List[str] = Form(...),
-    cc: Optional[List[str]] = Form([]),
-    bcc: Optional[List[str]] = Form([]),
-    subject: str = Form(...),
-    body: str = Form(...),
-    content_type: str = Form("html"),
-    attachments: Optional[List[UploadFile]] = File(None),
-    read_receipt: bool = Form(False),
-    read_receipt_email: Optional[str] = Form(None)
+    to: List[str] = Form(..., description="List of recipient email addresses"),
+    cc: Optional[List[str]] = Form([], description="List of CC email addresses"),
+    bcc: Optional[List[str]] = Form([], description="List of BCC email addresses"),
+    subject: str = Form(..., description="Subject of the email"),
+    body: str = Form(..., description="Body of the email"),
+    content_type: str = Form("html", description="Content type of the email (html or plain)"),
+    attachments: Optional[List[UploadFile]] = File(
+        None,
+        description="List of file attachments. Each file should be uploaded as a multipart/form-data file."
+    ),
+    read_receipt: bool = Form(False, description="Request a read receipt"),
+    read_receipt_email: Optional[str] = Form(None, description="Email address for read receipt notifications"),
 ):
     """Send an email via SMTP."""
     email, password, imap_server, smtp_server, imap_port, smtp_port = extract_mailbox_token(authorization)

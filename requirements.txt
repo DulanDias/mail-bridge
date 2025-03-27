@@ -11,3 +11,4 @@ uvicorn[standard]
 websockets
 PyJWT
 cryptography
+redis
