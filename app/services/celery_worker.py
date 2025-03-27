@@ -2,8 +2,12 @@ from celery import Celery
 import os
 
 # Celery Configuration
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
 celery = Celery(
     "mailbridge",
+    broker=REDIS_URL,
+    backend=REDIS_URL,
     include=["app.services.email_service"]
 )
 
