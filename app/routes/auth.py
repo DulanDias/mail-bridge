@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.models import MailboxConfig
-from app.services.jwt_service import generate_jwt
+from app.services.jwt_service import generate_jwt, generate_refresh_token, decode_refresh_token
 from app.services.email_service import validate_mailbox
 import logging
 
@@ -19,14 +19,14 @@ async def validate_mailbox_connection(config: MailboxConfig):
 
 @router.post("/login")
 async def login(config: MailboxConfig):
-    """ Authenticate user and issue a JWT token """
+    """ Authenticate user and issue JWT and refresh tokens """
     # Validate credentials directly
     success, error = validate_mailbox(config)
     if not success:
         raise HTTPException(status_code=400, detail=error)
     
-    # Generate a JWT token for future use
-    token = generate_jwt(
+    # Generate tokens
+    jwt_token = generate_jwt(
         config.email,
         config.password,
         config.imap_server,
@@ -34,8 +34,38 @@ async def login(config: MailboxConfig):
         config.imap_port,
         config.smtp_port
     )
-    logging.debug(f"Issued JWT token: {token}")
-    return {"token": token}
+    refresh_token = generate_refresh_token(
+        config.email,
+        config.password,
+        config.imap_server,
+        config.smtp_server,
+        config.imap_port,
+        config.smtp_port
+    )
+    logging.debug(f"Issued JWT token: {jwt_token}")
+    logging.debug(f"Issued Refresh Token: {refresh_token}")
+    return {"jwt_token": jwt_token, "refresh_token": refresh_token}
+
+@router.post("/refresh-token")
+async def refresh_token(refresh_token: str):
+    """ Refresh JWT token using a valid refresh token """
+    try:
+        # Decode the refresh token to extract its payload
+        email, password, imap_server, smtp_server, imap_port, smtp_port = decode_refresh_token(refresh_token)
+        
+        # Generate a new JWT token using the decoded values
+        jwt_token = generate_jwt(
+            email,
+            password,
+            imap_server,
+            smtp_server,
+            imap_port,
+            smtp_port
+        )
+        return {"jwt_token": jwt_token}
+    except Exception as e:
+        logging.error(f"Error refreshing token: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/decode-token")
 async def decode_token(token: str):

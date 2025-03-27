@@ -16,3 +16,12 @@ class EmailSendRequest(BaseModel):
     subject: str
     body: str
     attachments: Optional[List[str]] = None  # Paths to attachments
+
+class DraftEmail(BaseModel):
+    sender_name: Optional[str] = None
+    to: List[EmailStr]
+    cc: Optional[List[EmailStr]] = []
+    bcc: Optional[List[EmailStr]] = []
+    subject: str
+    body: str
+    attachments: Optional[List[str]] = None  # Base64-encoded attachments

@@ -204,9 +204,11 @@ docker-compose up -d
 ### **Authentication**
 | **Endpoint**      | **Method** | **Description**                          |
 |--------------------|-----------|------------------------------------------|
-| `/api/v1/auth/login` | `POST`   | Authenticate user and issue a JWT token |
-| `/api/v1/auth/validate` | `POST` | Validate IMAP/SMTP connection for a mailbox |
-| `/api/v1/auth/decode-token` | `GET` | Decode JWT token to retrieve credentials |
+| `/api/v1/auth/login` | `POST`   | Authenticate user and issue JWT and refresh tokens |
+| `/api/v1/auth/refresh-token` | `POST` | Refresh JWT token using a valid refresh token |
+
+### **Headers**
+- **Authorization**: `Bearer <jwt_token>` (Required for all protected endpoints)
 
 ---
 

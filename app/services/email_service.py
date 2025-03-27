@@ -23,15 +23,21 @@ logging.basicConfig(level=logging.DEBUG)
 
 def get_mailbox_config_from_token(token: str):
     """ Retrieve mailbox configuration from JWT token """
-    email, password, imap_server, smtp_server, imap_port, smtp_port = decode_jwt(token)
-    return {
+    try:
+        email, password, imap_server, smtp_server, imap_port, smtp_port = decode_jwt(token)
+        if not email or not imap_server or not smtp_server:
+            raise Exception("Mailbox not found")
+        return {
             "email": email,
             "password": password,
             "imap_server": imap_server,
             "smtp_server": smtp_server,
             "imap_port": imap_port,
             "smtp_port": smtp_port
-    }
+        }
+    except Exception as e:
+        logging.error(f"Error retrieving mailbox config: {str(e)}")
+        raise Exception("Mailbox not found")
 
 @celery.task
 def check_new_emails(mailbox_token: str):
@@ -700,37 +706,33 @@ def mark_email_as_unread(mailbox_token: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to mark email {email_id} as unread: {str(e)}"}
     
-def save_draft(mailbox_token: str, email_data):
-    """ Save an email as a draft in the Drafts folder """
-
+def save_draft(mailbox_token: str, draft_data: dict):
+    """Save an email as a draft in the Drafts folder."""
     config = get_mailbox_config_from_token(mailbox_token)
-
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
 
-        # Get the correct Drafts folder name
         drafts_folder = get_imap_folder_name(imap, "Drafts")
 
-        # Create the email object
         msg = EmailMessage()
-        msg["From"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
-        msg["To"] = ", ".join(email_data.get("to", []))
-        msg["Subject"] = email_data.get("subject", "")
-        msg.set_content(email_data.get("body", ""))
+        msg["From"] = f"{draft_data.get('sender_name', '')} <{config['email']}>"
+        msg["To"] = ", ".join(draft_data.get("to", []))
+        msg["CC"] = ", ".join(draft_data.get("cc", []))
+        msg["BCC"] = ", ".join(draft_data.get("bcc", []))
+        msg["Subject"] = draft_data.get("subject", "")
+        msg.set_content(draft_data.get("body", ""))
 
-        # Encode the message
-        raw_email = msg.as_bytes()
+        # Handle attachments
+        for attachment in draft_data.get("attachments", []):
+            file_data = base64.b64decode(attachment["content"])
+            msg.add_attachment(file_data, filename=attachment["filename"])
 
-        # Select Drafts folder and append the message
-        imap.append(drafts_folder, None, None, raw_email)
+        imap.append(drafts_folder, None, None, msg.as_bytes())
         imap.logout()
-
         return {"message": "Draft saved successfully"}
-
     except Exception as e:
         return {"error": f"Failed to save draft: {str(e)}"}
-
 
 def get_draft(mailbox_token: str, email_id: str):
     """ Fetch a saved draft email """
@@ -911,22 +913,15 @@ def reply_all_email(mailbox_token: str, email_id: str):
     except Exception as e:
         return {"error": f"Failed to reply-all: {str(e)}"}
     
-def update_draft(mailbox_token: str, email_id: str, email_data):
-    """ Update an existing draft email """
-
+def update_draft(mailbox_token: str, email_id: str, draft_data: dict):
+    """Update an existing draft email."""
     config = get_mailbox_config_from_token(mailbox_token)
-
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
 
-        # Get the correct Drafts folder name
         drafts_folder = get_imap_folder_name(imap, "Drafts")
-
-        # Select Drafts folder
-        status, _ = imap.select(drafts_folder)
-        if status != "OK":
-            return {"error": f"Failed to select Drafts folder"}
+        imap.select(drafts_folder)
 
         # Search for the draft by Message-ID
         _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
@@ -939,22 +934,25 @@ def update_draft(mailbox_token: str, email_id: str, email_data):
         # Delete the existing draft
         for eid in email_ids:
             imap.store(eid, "+FLAGS", "\\Deleted")
-
         imap.expunge()
 
         # Create a new draft message
         msg = EmailMessage()
-        msg["From"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
-        msg["To"] = ", ".join(email_data.get("to", []))
-        msg["Subject"] = email_data.get("subject", "")
-        msg.set_content(email_data.get("body", ""))
+        msg["From"] = f"{draft_data.get('sender_name', '')} <{config['email']}>"
+        msg["To"] = ", ".join(draft_data.get("to", []))
+        msg["CC"] = ", ".join(draft_data.get("cc", []))
+        msg["BCC"] = ", ".join(draft_data.get("bcc", []))
+        msg["Subject"] = draft_data.get("subject", "")
+        msg.set_content(draft_data.get("body", ""))
 
-        # Save the updated draft
+        # Handle attachments
+        for attachment in draft_data.get("attachments", []):
+            file_data = base64.b64decode(attachment["content"])
+            msg.add_attachment(file_data, filename=attachment["filename"])
+
         imap.append(drafts_folder, None, None, msg.as_bytes())
         imap.logout()
-
         return {"message": "Draft updated successfully"}
-
     except Exception as e:
         return {"error": f"Failed to update draft: {str(e)}"}
 

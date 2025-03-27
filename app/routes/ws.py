@@ -7,10 +7,16 @@ router = APIRouter()
 active_connections = {}  # Track WebSockets per email
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str):
-    """ WebSocket connection using mailbox_token """
+async def websocket_endpoint(websocket: WebSocket, authorization: str):
+    """ WebSocket connection using Bearer token """
     try:
-        # Unpack all six values returned by decode_jwt
+        # Extract Bearer token
+        if not authorization.startswith("Bearer "):
+            await websocket.close(code=4001)
+            raise HTTPException(status_code=401, detail="Invalid Authorization header")
+        token = authorization.split(" ")[1]
+
+        # Decode JWT token
         email, _, _, _, _, _ = decode_jwt(token)
     except Exception as e:
         await websocket.close(code=4001)  # Close WebSocket with error code
