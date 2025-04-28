@@ -1,0 +1,48 @@
+image: python:3.9
+
+default:
+  tags:
+    - $RUNNER_TAG
+
+variables:
+  DOCKER_TLS_CERTDIR: ''
+  API_PATH: '$CI_PROJECT_DIR/app'
+  FF_USE_FASTZIP: 'true'
+  ARTIFACT_COMPRESSION_LEVEL: 'fast'
+  CACHE_COMPRESSION_LEVEL: 'fast'
+
+stages:
+  - push
+  - deploy
+
+# Build the application (e.g., create a Docker image or package a wheel)
+build-application:
+  image: docker:latest
+  stage: push
+  services: 
+    - docker:dind
+  variables:
+    DOCKER_DRIVER: overlay2
+  before_script:
+    - apk add --no-cache docker-cli
+    - docker login $REGISTRY -u $REGISTRY_USER -p $REGISTRY_PASSWORD
+  script:
+    - docker build --build-arg GIT_AUTHOR_NAME=$GIT_AUTHOR_NAME --build-arg GIT_AUTHOR_EMAIL=$GIT_AUTHOR_EMAIL -t $REGISTRY_PATH/api:latest -t $REGISTRY_PATH/api:1.0.0 -f Dockerfile .
+    - echo "pushing api docker images"
+    - docker push $REGISTRY_PATH/api:1.0.0
+    - docker push $REGISTRY_PATH/api:latest
+
+deploy_build:
+  image: ubuntu:latest
+  stage: deploy
+  cache: {}
+  before_script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - mkdir -p ~/.ssh
+    - eval $(ssh-agent -s)
+    - echo "$PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+  script:
+    - ssh $SERVER_USER@$PUBLIC_DNS "cd /var/www/ && $DEPLOY_SCRIPT -a $CONTAINER_TAG -u $REGISTRY_USER -p $REGISTRY_PASSWORD -l $DEPLOY_PATH -r $REGISTRY -e $CI_ENVIRONMENT_NAME -x $REGISTRY_PATH/api/$CI_ENVIRONMENT_NAME"
+    - scp -o StrictHostKeyChecking=no -r app $SERVER_USER@$PUBLIC_DNS:$DEPLOY_PATH/host_app
+    - scp -o StrictHostKeyChecking=no -r tests $SERVER_USER@$PUBLIC_DNS:$DEPLOY_PATH/host_app

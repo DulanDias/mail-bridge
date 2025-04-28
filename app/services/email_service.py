@@ -17,6 +17,8 @@ from app.models import MailboxConfig
 from app.routes.ws import notify_clients
 import json
 import logging
+from fastapi import HTTPException
+import email.utils
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -37,7 +39,7 @@ def get_mailbox_config_from_token(token: str):
         }
     except Exception as e:
         logging.error(f"Error retrieving mailbox config: {str(e)}")
-        raise Exception("Mailbox not found")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 @celery.task
 def check_new_emails(mailbox_token: str):
@@ -107,6 +109,7 @@ def send_email_task(mailbox_token: str, email_data: dict):
             msg.attach(MIMEText(email_body, "html"))
 
         # Set email headers
+        msg["Message-ID"] = email.utils.make_msgid()
         msg["From"] = formatted_sender
         msg["To"] = ", ".join(to_recipients)
         msg["CC"] = ", ".join(cc_recipients)
@@ -143,7 +146,8 @@ def send_email_task(mailbox_token: str, email_data: dict):
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
         sent_folder = get_imap_folder_name(imap, "Sent")
-        imap.append(sent_folder, None, None, msg.as_bytes())
+
+        imap.append(sent_folder, None, None,msg.as_bytes())
         imap.logout()
 
         return {"message": "Email sent successfully", "response": str(response)}
@@ -182,24 +186,20 @@ def validate_mailbox(config: MailboxConfig):
 
     return True, None
 
-def get_emails(mailbox_token: str, page: int = 1, limit: int = 20):
+def get_emails(config: dict, page: int = 1, limit: int = 20):
     """ Fetch emails from the mailbox using IMAP and return subject, sender, date, partial email body, 'to' list, and flags """
-
     try:
-        # Retrieve stored mailbox configuration
-        config = get_mailbox_config_from_token(mailbox_token)
-
         # Connect to IMAP server
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-        imap.select("INBOX")
+        imap.select("INBOX", readonly=True)
 
         # Fetch all email IDs
         _, messages = imap.search(None, "ALL")
         email_ids = messages[0].split()
 
         # Paginate results
-        start = max(0, len(email_ids) - (page * limit))
+        start = (page - 1) * limit
         end = start + limit
         email_subset = email_ids[start:end]
 
@@ -210,41 +210,37 @@ def get_emails(mailbox_token: str, page: int = 1, limit: int = 20):
             for response_part in msg_data:
                 if isinstance(response_part, tuple):
                     msg = email.message_from_bytes(response_part[1])
-
-                    # Extract subject and decode it properly
+                    # Extract header fields
                     subject, encoding = decode_header(msg["Subject"])[0]
                     if isinstance(subject, bytes):
                         subject = subject.decode(encoding or "utf-8")
-
-                    # Extract sender
                     sender = msg["From"]
-
-                    # Extract date
                     date = msg["Date"]
-
-                    # Extract a small preview of the email body
                     body_preview = "No preview available"
                     if msg.is_multipart():
                         for part in msg.walk():
                             content_type = part.get_content_type()
                             content_disposition = str(part.get("Content-Disposition"))
-
                             if content_type == "text/plain" and "attachment" not in content_disposition:
                                 body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-                                body_preview = body[:100]  # First 100 characters
+                                body_preview = body[:100]
                                 break
                     else:
                         body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
                         body_preview = body[:100]
-
+                    # Extract the Message-ID header
+                    message_id = msg.get("Message-ID") or "Unknown"
+                    logging.info(f"Message-ID is true : {message_id}")
                     email_list.append({
                         "email_id": eid.decode(),
+                        "message_id": message_id,  # Ensure Message-ID is returned
                         "subject": subject or "No Subject",
                         "from": sender or "Unknown Sender",
                         "date": date or "Unknown Date",
                         "body_preview": body_preview,
                         "to": [recipient.strip() for recipient in msg.get_all("To", [])],
-                        "flags": get_email_flags(mailbox_token, eid.decode())
+                        "cc": [recipient.strip() for recipient in msg.get_all("Cc", [])] if msg.get_all("Cc") else [],
+                        "flags": get_email_flags(config, eid.decode())
                     })
 
         imap.logout()
@@ -316,99 +312,108 @@ def get_full_email_from_inbox(mailbox_token: str, email_id: str):
 def get_imap_folder_name(imap, folder_name):
     """ Get the correct IMAP folder name based on the email provider. """
     folder_mappings = {
-        "Trash": ["Trash", "[Gmail]/Trash", "Deleted Items", "Bin"],
-        "Sent": ["Sent", "[Gmail]/Sent Mail", "Sent Items"],
-        "Archive": ["Archive", "[Gmail]/All Mail"]
+        "trash": ["Trash", "[Gmail]/Trash", "Deleted Items", "Bin"],
+        "sent": ["Sent", "[Gmail]/Sent Mail", "Sent Items"],
+        "archive": ["Archive", "[Gmail]/All Mail"],
+        "drafts": ["Drafts", "[Gmail]/Drafts"]
     }
-
-    try:
-        # List available folders
-        _, folders = imap.list()
-        folder_list = [f.decode().split(' "." ')[-1].strip() for f in folders]
-
-        for mapped_name in folder_mappings.get(folder_name, [folder_name]):
-            if mapped_name in folder_list:
-                return mapped_name  # Return the correct folder name
-
-        return folder_name  # Fallback to requested folder
-
-    except Exception:
-        return folder_name  # Fallback to requested folder
+    # Default to provided folder if no mapping is found
+    desired_names = folder_mappings.get(folder_name.lower(), [folder_name])
+    # List available folders
+    _, folders = imap.list()
+    folder_list = [f.decode().split(' "." ')[-1].strip() for f in folders]
+    lower_folders = [f.lower() for f in folder_list]
+    
+    for desired in desired_names:
+        if desired.lower() in lower_folders:
+            # Return the actual folder name as returned by the server
+            return folder_list[lower_folders.index(desired.lower())]
+    
+    return folder_name  # Fallback to the requested folder name
 
 
 def get_emails_by_folder(mailbox_token: str, folder: str, page: int = 1, limit: int = 20):
-    """ Fetch emails from a specific folder with pagination, including 'to' list and flags """
-
-    # Retrieve stored mailbox configuration
+    """ Fetch emails from a specific folder with pagination, including 'to' list, flags, and message_id """
     config = get_mailbox_config_from_token(mailbox_token)
-
     try:
-        # Connect to IMAP server
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-
-        # Get the correct folder name
         correct_folder = get_imap_folder_name(imap, folder)
-
-        # DEBUG: Print available folders
         print(f"Selected IMAP Folder: {correct_folder}")
-
-        # Select the folder
         status, messages = imap.select(correct_folder, readonly=True)
         if status != "OK":
             return {"error": f"Failed to select folder: {correct_folder}"}
-
-        # Fetch all email IDs
         _, messages = imap.search(None, "ALL")
         email_ids = messages[0].split()
-
-        # Paginate results
         start = max(0, len(email_ids) - (page * limit))
         end = start + limit
         email_subset = email_ids[start:end]
-
         email_list = []
 
         for eid in email_subset:
-            _, msg_data = imap.fetch(eid, "(RFC822)")
+            _, msg_data = imap.fetch(eid, "(BODY.PEEK[])")
+            logging.info(f"email data : {msg_data}")
+
             for response_part in msg_data:
                 if isinstance(response_part, tuple):
                     msg = email.message_from_bytes(response_part[1])
-
-                    # Extract subject and decode properly
                     subject, encoding = decode_header(msg["Subject"])[0]
                     if isinstance(subject, bytes):
                         subject = subject.decode(encoding or "utf-8")
-
-                    # Extract sender
                     sender = msg["From"]
-
-                    # Extract date
                     date = msg["Date"]
-
-                    # Extract a small preview of the email body
+                    if not date:
+                        _, internal_data = imap.fetch(eid, "(INTERNALDATE)")
+                        internal_response = internal_data[0].decode()
+                        start_index = internal_response.find('"')
+                        end_index = internal_response.find('"', start_index + 1)
+                        if start_index != -1 and end_index != -1:
+                            date = internal_response[start_index+1:end_index]
                     body_preview = "No preview available"
+                    attachments = []
+                    
+                    # Process email parts to find body and attachments
                     if msg.is_multipart():
+                        print("msg is multipart")
                         for part in msg.walk():
+                            print(part.get_content_type())
                             content_type = part.get_content_type()
                             content_disposition = str(part.get("Content-Disposition"))
-
-                            if content_type == "text/plain" and "attachment" not in content_disposition:
+                            
+                            # Check for attachments
+                            if "attachment" in content_disposition:
+                                filename = part.get_filename()
+                                if filename:
+                                    # Only include metadata (not content) to keep response size reasonable
+                                    attachments.append({
+                                        "filename": filename,
+                                        "content_type": content_type,
+                                        "size": len(part.get_payload(decode=True))
+                                    })
+                            # Extract body preview
+                            elif content_type == "text/plain" and "attachment" not in content_disposition:
                                 body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-                                body_preview = body[:100]  # First 100 characters
+                                body_preview = body[:100]
                                 break
                     else:
                         body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
                         body_preview = body[:100]
 
+                    flags = get_email_flags(config, eid.decode())
+                    
                     email_list.append({
                         "email_id": eid.decode(),
+                        "message_id": msg.get("Message-ID") or "Unknown",
                         "subject": subject,
                         "from": sender,
                         "date": date,
                         "body_preview": body_preview,
                         "to": [recipient.strip() for recipient in msg.get_all("To", [])],
-                        "flags": get_email_flags(mailbox_token, eid.decode())
+                        "flags": flags,
+                        "isStarred": "is_star" in flags,
+                        "isSeen": "is_seen" in flags,
+                        "has_attachments": len(attachments) > 0,
+                        "attachments": attachments
                     })
 
         imap.logout()
@@ -416,7 +421,100 @@ def get_emails_by_folder(mailbox_token: str, folder: str, page: int = 1, limit: 
 
     except Exception as e:
         return {"error": f"Failed to fetch emails from {folder}: {str(e)}"}
+    
+def get_imap_folder_name(imap, folder_name):
+    """ Get the correct IMAP folder name based on the email provider. """
+    folder_mappings = {
+        "trash": ["Trash", "[Gmail]/Trash", "Deleted Items", "Bin"],
+        "sent": ["Sent", "[Gmail]/Sent Mail", "Sent Items"],
+        "archive": ["Archive", "[Gmail]/All Mail"],
+        "drafts": ["Drafts", "[Gmail]/Drafts"]
+    }
+    # Default to provided folder if no mapping is found
+    desired_names = folder_mappings.get(folder_name.lower(), [folder_name])
+    # List available folders
+    _, folders = imap.list()
+    folder_list = [f.decode().split(' "." ')[-1].strip() for f in folders]
+    lower_folders = [f.lower() for f in folder_list]
+    
+    for desired in desired_names:
+        if desired.lower() in lower_folders:
+            # Return the actual folder name as returned by the server
+            return folder_list[lower_folders.index(desired.lower())]
+    
+    return folder_name  # Fallback to the requested folder name
 
+
+def get_emails_by_draft_folder(mailbox_token: str, folder: str, page: int = 1, limit: int = 20):
+    """ Fetch emails from a specific folder with pagination, including 'to' list, flags, and message_id """
+    config = get_mailbox_config_from_token(mailbox_token)
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+        correct_folder = get_imap_folder_name(imap, folder)
+        print(f"Selected IMAP Folder: {correct_folder}")
+        status, messages = imap.select(correct_folder, readonly=True)
+        if status != "OK":
+            return {"error": f"Failed to select folder: {correct_folder}"}
+        _, messages = imap.search(None, "ALL")
+        email_ids = messages[0].split()
+        start = max(0, len(email_ids) - (page * limit))
+        end = start + limit
+        email_subset = email_ids[start:end]
+        email_list = []
+
+        for eid in email_subset:
+            _, msg_data = imap.fetch(eid, "(BODY.PEEK[])")
+            logging.info(f"email data : {msg_data}")
+
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    subject, encoding = decode_header(msg["Subject"])[0]
+                    if isinstance(subject, bytes):
+                        subject = subject.decode(encoding or "utf-8")
+                    sender = msg["To"]
+                    date = msg["Date"]
+                    if not date:
+                        _, internal_data = imap.fetch(eid, "(INTERNALDATE)")
+                        internal_response = internal_data[0].decode()
+                        start_index = internal_response.find('"')
+                        end_index = internal_response.find('"', start_index + 1)
+                        if start_index != -1 and end_index != -1:
+                            date = internal_response[start_index+1:end_index]
+                    body_preview = "No preview available"
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            content_type = part.get_content_type()
+                            content_disposition = str(part.get("Content-Disposition"))
+                            if content_type == "text/plain" and "attachment" not in content_disposition:
+                                body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                body_preview = body[:100]
+                                break
+                    else:
+                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                        body_preview = body[:100]
+
+                    flags = get_email_flags(config, eid.decode())
+                    
+                    email_list.append({
+                        "email_id": eid.decode(),
+                        "message_id": msg.get("Message-ID") or "Unknown",
+                        "subject": subject,
+                        "from": [recipient.strip() for recipient in msg.get_all("To", [])],
+                        "date": date,
+                        "body_preview": body_preview,
+                        "to": sender,
+                        "flags": flags,
+                        "isStarred": "is_star" in flags,
+                        "isSeen": "is_seen" in flags
+                    })
+
+        imap.logout()
+        return {"emails": email_list}
+
+    except Exception as e:
+        return {"error": f"Failed to fetch emails from {folder}: {str(e)}"}
 
 def delete_email(mailbox_token: str, email_id: str):
     """ Move an email to the Trash folder first. If it's already in Trash, permanently delete it. """
@@ -567,10 +665,10 @@ def delete_email_from_trash(mailbox_token: str, email_id: str):
         return {"error": f"Failed to delete email {email_id} from Trash: {str(e)}"}
 
 
-def get_full_email_from_folder(mailbox_token: str, email_id: str, folder: str):
+def get_full_email_from_folder(config: str, email_id: str, folder: str):
     """ Fetch full email content including attachments, 'to' list, and flags """
 
-    config = get_mailbox_config_from_token(mailbox_token)
+    # config = get_mailbox_config_from_token(mailbox_token)
 
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
@@ -583,43 +681,53 @@ def get_full_email_from_folder(mailbox_token: str, email_id: str, folder: str):
         status, messages = imap.select(folder_name)
         if status != "OK":
             return {"error": f"Failed to select folder: {folder_name}"}
-
-        # Search for the email by Message-ID
-        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
-        email_ids = messages[0].split()
-
-        if not email_ids:
-            imap.logout()
-            return {"error": f"Email {email_id} not found in {folder}"}
-
-        # Fetch full email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        
+        # # Fetch full email
+        _, msg_data = imap.fetch(email_id, "(RFC822)")
         if not msg_data or msg_data[0] is None:
             imap.logout()
             return {"error": f"Failed to fetch full email: Email ID {email_id} may be invalid or missing"}
 
         msg = email.message_from_bytes(msg_data[0][1])
+        logging.info(f"msg : {msg}")
 
         # Extract headers
         subject, encoding = decode_header(msg["Subject"])[0]
         if isinstance(subject, bytes):
             subject = subject.decode(encoding or "utf-8")
 
+        to, encoding = decode_header(msg["To"])[0]
+        if isinstance(to, bytes):
+            subject = to.decode(encoding or "utf-8")
+
         sender = msg["From"]
         date = msg["Date"]
+
+        # Add fallback for missing Date header
+        if not date:
+            _, internal_data = imap.fetch(email_id, "(INTERNALDATE)")
+            internal_response = internal_data[0].decode()
+            start_index = internal_response.find('"')
+            end_index = internal_response.find('"', start_index + 1)
+            if start_index != -1 and end_index != -1:
+                date = internal_response[start_index+1:end_index]
 
         # Extract email body
         body = "No content available"
         attachments = []
-        
+        html_body = None
+        plain_body = None
+
         if msg.is_multipart():
             for part in msg.walk():
                 content_type = part.get_content_type()
                 content_disposition = str(part.get("Content-Disposition"))
 
-                if content_type == "text/plain" and "attachment" not in content_disposition:
-                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-
+                if "attachment" not in content_disposition:
+                    if content_type == "text/plain":
+                        plain_body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                    elif content_type == "text/html":
+                        html_body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
                 elif "attachment" in content_disposition:
                     filename = part.get_filename()
                     file_data = part.get_payload(decode=True)
@@ -627,6 +735,12 @@ def get_full_email_from_folder(mailbox_token: str, email_id: str, folder: str):
                         "filename": filename,
                         "size": len(file_data)
                     })
+            
+            # Prioritize HTML content if available, otherwise use plain text
+            if html_body:
+                body = html_body
+            elif plain_body:
+                body = plain_body
         else:
             body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
 
@@ -639,8 +753,8 @@ def get_full_email_from_folder(mailbox_token: str, email_id: str, folder: str):
             "date": date,
             "body": body,
             "attachments": attachments,
-            "to": [recipient.strip() for recipient in msg.get_all("To", [])],
-            "flags": get_email_flags(mailbox_token, email_id)
+            "to": to,
+            "flags": get_email_flags(config, email_id)
         }
 
     except Exception as e:
@@ -666,9 +780,9 @@ def mark_email_as_read(mailbox_token: str, email_id: str):
             imap.logout()
             return {"error": f"Email {email_id} not found in INBOX"}
 
-        # Append the \Seen flag
+        # Append the "is_seen" label to mark as read
         for eid in email_ids:
-            imap.store(eid, "+FLAGS", "\\Seen")
+            imap.store(eid, "+FLAGS", "is_seen")
 
         imap.logout()
         return {"message": f"Email {email_id} marked as read"}
@@ -696,9 +810,9 @@ def mark_email_as_unread(mailbox_token: str, email_id: str):
             imap.logout()
             return {"error": f"Email {email_id} not found in INBOX"}
 
-        # Remove the \Seen flag
+        # Remove the "is_seen" label to mark as unread
         for eid in email_ids:
-            imap.store(eid, "-FLAGS", "\\Seen")
+            imap.store(eid, "-FLAGS", "is_seen")
 
         imap.logout()
         return {"message": f"Email {email_id} marked as unread"}
@@ -752,15 +866,15 @@ def get_draft(mailbox_token: str, email_id: str):
             return {"error": f"Failed to select Drafts folder"}
 
         # Search for the draft by Message-ID
-        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
-        email_ids = messages[0].split()
+        # _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        # email_ids = messages[0].split()
 
-        if not email_ids:
-            imap.logout()
-            return {"error": f"Draft {email_id} not found"}
+        # if not email_ids:
+        #     imap.logout()
+        #     return {"error": f"Draft {email_id} not found"}
 
         # Fetch draft content
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = imap.fetch(email_id[0], "(RFC822)")
         msg = email.message_from_bytes(msg_data[0][1])
 
         # Extract details
@@ -802,13 +916,13 @@ def reply_to_email(mailbox_token: str, email_id: str, email_data):
             return {"error": f"Original email {email_id} not found"}
 
         # Fetch original email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = imap.fetch(email_ids[0], "(BODY.PEEK[])")
         msg = email.message_from_bytes(msg_data[0][1])
 
         # Create reply
         reply_msg = EmailMessage()
-        reply_msg["From"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
-        reply_msg["To"] = msg["From"]
+        reply_msg["From"] = msg["From"]
+        reply_msg["To"] = f"{email_data.get('sender_name', '')} <{config['email']}>"
         reply_msg["Subject"] = f"Re: {msg['Subject']}"
         reply_msg.set_content(email_data.get("body", ""))
 
@@ -844,7 +958,7 @@ def forward_email(mailbox_token: str, email_id: str, email_data):
             return {"error": f"Original email {email_id} not found"}
 
         # Fetch original email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = imap.fetch(email_ids[0], "(BODY.PEEK[])")
         msg = email.message_from_bytes(msg_data[0][1])
 
         # Create forward message
@@ -889,7 +1003,7 @@ def reply_all_email(mailbox_token: str, email_id: str):
             return {"error": f"Original email {email_id} not found"}
 
         # Fetch original email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = imap.fetch(email_ids[0], "(BODY.PEEK[])")
         msg = email.message_from_bytes(msg_data[0][1])
 
         # Create reply-all message
@@ -995,7 +1109,7 @@ def delete_draft(mailbox_token: str, email_id: str):
         return {"error": f"Failed to delete draft: {str(e)}"}
     
 def get_unread_count(mailbox_token: str):
-    """ Get the total number of unread emails in the mailbox """
+    """ Get the total number of unread emails in the mailbox (emails not marked with 'is_seen') """
 
     config = get_mailbox_config_from_token(mailbox_token)
 
@@ -1004,7 +1118,8 @@ def get_unread_count(mailbox_token: str):
         imap.login(config["email"], config["password"])
         imap.select("INBOX")
 
-        _, messages = imap.search(None, "UNSEEN")
+        # Search for emails that do NOT have the custom "is_seen" flag
+        _, messages = imap.search(None, 'NOT', 'is_seen')
         email_ids = messages[0].split()
         unread_count = len(email_ids)
 
@@ -1033,7 +1148,7 @@ def search_emails(mailbox_token: str, search_criteria: str):
             email_list = []
 
             for eid in email_ids:
-                _, msg_data = imap.fetch(eid, "(RFC822)")
+                _, msg_data = imap.fetch(eid, "(BODY.PEEK[])")
                 for response_part in msg_data:
                     if isinstance(response_part, tuple):
                         msg = email.message_from_bytes(response_part[1])
@@ -1099,7 +1214,7 @@ def get_email_attachments(mailbox_token: str, email_id: str):
             return {"error": f"Email {email_id} not found"}
 
         # Fetch the email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = imap.fetch(email_ids[0], "(BODY.PEEK[])")
         msg = email.message_from_bytes(msg_data[0][1])
 
         # Extract attachments
@@ -1203,7 +1318,7 @@ def get_email_attachment(mailbox_token: str, email_id: str, attachment_id: str):
             return {"error": f"Email {email_id} not found"}
 
         # Fetch the email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = imap.fetch(email_ids[0], "(BODY.PEEK[])")
         msg = email.message_from_bytes(msg_data[0][1])
 
         # Extract the specific attachment
@@ -1247,7 +1362,7 @@ def download_email_attachment(mailbox_token: str, email_id: str, attachment_id: 
             return {"error": f"Email {email_id} not found"}
 
         # Fetch the email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = imap.fetch(email_ids[0], "(BODY.PEEK[])")
         msg = email.message_from_bytes(msg_data[0][1])
 
         # Extract the specific attachment
@@ -1280,11 +1395,11 @@ def filter_emails(mailbox_token: str, filter_type: str, page: int = 1, limit: in
         imap.login(config["email"], config["password"])
         imap.select("INBOX")
 
-        # Define search criteria based on filter type
+        # Define search criteria based on filter type using custom "is_seen" flag
         if filter_type == "read":
-            search_criteria = "SEEN"
+            search_criteria = "is_seen"
         elif filter_type == "unread":
-            search_criteria = "UNSEEN"
+            search_criteria = "NOT is_seen"
         elif filter_type == "starred":
             search_criteria = "FLAGGED"
         elif filter_type == "unstarred":
@@ -1294,7 +1409,7 @@ def filter_emails(mailbox_token: str, filter_type: str, page: int = 1, limit: in
         else:
             return {"error": f"Invalid filter type: {filter_type}"}
 
-        # Search emails based on criteria
+        # Search emails based on the updated criteria
         status, messages = imap.search(None, search_criteria)
         if status != "OK":
             return {"error": f"Failed to filter emails with criteria: {search_criteria}"}
@@ -1309,7 +1424,7 @@ def filter_emails(mailbox_token: str, filter_type: str, page: int = 1, limit: in
         email_list = []
 
         for eid in email_subset:
-            _, msg_data = imap.fetch(eid, "(RFC822)")
+            _, msg_data = imap.fetch(eid, "(BODY.PEEK[])")
             for response_part in msg_data:
                 if isinstance(response_part, tuple):
                     msg = email.message_from_bytes(response_part[1])
@@ -1331,7 +1446,6 @@ def filter_emails(mailbox_token: str, filter_type: str, page: int = 1, limit: in
                         for part in msg.walk():
                             content_type = part.get_content_type()
                             content_disposition = str(part.get("Content-Disposition"))
-
                             if content_type == "text/plain" and "attachment" not in content_disposition:
                                 body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
                                 body_preview = body[:100]  # First 100 characters
@@ -1353,144 +1467,123 @@ def filter_emails(mailbox_token: str, filter_type: str, page: int = 1, limit: in
 
     except Exception as e:
         return {"error": f"Failed to filter emails: {str(e)}"}
-        
-def get_email_flags(mailbox_token: str, email_id: str):
-    """ Get the flags of a specific email """
 
-    config = get_mailbox_config_from_token(mailbox_token)
+import re
 
+def get_email_flags(config, email_id: str, folder: str = "INBOX"):
+    """Fetch flags for the given email_id using IMAP fetch."""
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-
-        # Select INBOX
-        imap.select("INBOX")
-
-        # Search for the email by Message-ID
-        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
-        email_ids = messages[0].split()
-
-        if not email_ids:
-            imap.logout()
-            return []
-
-        # Fetch the email flags
-        _, msg_data = imap.fetch(email_ids[0], "(FLAGS)")
-        flags = msg_data[0].decode().split("FLAGS")[1].strip()
-
+        imap.select(folder)
+        # Fetch flags using the whole email_id (not email_id[0])
+        _, msg_data = imap.fetch(email_id, "(FLAGS)")
+        flags_response = msg_data[0].decode()
+        # Use regex to extract content inside the inner parenthesis after 'FLAGS'
+        m = re.search(r'FLAGS\s+\((.*?)\)', flags_response)
+        flags = m.group(1) if m else ""
         imap.logout()
-        return flags
-
+        # Return a list of non-empty flag tokens
+        return [flag for flag in flags.split() if flag]
     except Exception as e:
-        return {"error": f"Failed to fetch email flags: {str(e)}"}
+        return []
     
 def get_starred_emails(mailbox_token: str, page: int = 1, limit: int = 20):
-    """ Fetch starred emails with pagination """
-
     config = get_mailbox_config_from_token(mailbox_token)
-
+    folder = "INBOX"
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-        imap.select("INBOX")
-
-        # Search for starred emails
-        status, messages = imap.search(None, "FLAGGED")
+        correct_folder = get_imap_folder_name(imap, folder)
+        print(f"Selected IMAP Folder: {correct_folder}")
+        status, messages = imap.select(correct_folder, readonly=True)
         if status != "OK":
-            return {"error": "Failed to fetch starred emails"}
-
+            return {"error": f"Failed to select folder: {correct_folder}"}
+        _, messages = imap.search(None, "ALL")
         email_ids = messages[0].split()
-
-        # Paginate results
         start = max(0, len(email_ids) - (page * limit))
         end = start + limit
         email_subset = email_ids[start:end]
-
         email_list = []
 
         for eid in email_subset:
-            _, msg_data = imap.fetch(eid, "(RFC822)")
+            _, msg_data = imap.fetch(eid, "(BODY.PEEK[])")
+            logging.info(f"email data : {msg_data}")
+
             for response_part in msg_data:
                 if isinstance(response_part, tuple):
                     msg = email.message_from_bytes(response_part[1])
-
-                    # Extract subject and decode properly
                     subject, encoding = decode_header(msg["Subject"])[0]
                     if isinstance(subject, bytes):
                         subject = subject.decode(encoding or "utf-8")
-
-                    # Extract sender
                     sender = msg["From"]
-
-                    # Extract date
                     date = msg["Date"]
-
-                    # Extract a small preview of the email body
+                    if not date:
+                        _, internal_data = imap.fetch(eid, "(INTERNALDATE)")
+                        internal_response = internal_data[0].decode()
+                        start_index = internal_response.find('"')
+                        end_index = internal_response.find('"', start_index + 1)
+                        if start_index != -1 and end_index != -1:
+                            date = internal_response[start_index+1:end_index]
                     body_preview = "No preview available"
-                    attachments_preview = []
                     if msg.is_multipart():
                         for part in msg.walk():
                             content_type = part.get_content_type()
                             content_disposition = str(part.get("Content-Disposition"))
-
                             if content_type == "text/plain" and "attachment" not in content_disposition:
                                 body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-                                body_preview = body[:100]  # First 100 characters
-                            elif "attachment" in content_disposition:
-                                filename = part.get_filename()
-                                attachments_preview.append(filename)
+                                body_preview = body[:100]
+                                break
                     else:
                         body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
                         body_preview = body[:100]
 
-                    email_list.append({
-                        "email_id": eid.decode(),
-                        "subject": subject or "No Subject",
-                        "from": sender or "Unknown Sender",
-                        "date": date or "Unknown Date",
-                        "body_preview": body_preview,
-                        "attachments_preview": attachments_preview
-                    })
+                    flags = get_email_flags(config, eid.decode())
+
+                    # Check if the email is starred
+                    if "is_star" in flags:
+                        email_list.append({
+                            "email_id": eid.decode(),
+                            "message_id": msg.get("Message-ID") or "Unknown",
+                            "subject": subject,
+                            "from": sender,
+                            "date": date,
+                            "body_preview": body_preview,
+                            "to": [recipient.strip() for recipient in msg.get_all("To", [])],
+                            "flags": flags,
+                            "isStarred": "is_star" in flags,
+                            "isSeen": "is_seen" in flags
+                        })
 
         imap.logout()
         return {"emails": email_list}
 
     except Exception as e:
-        return {"error": f"Failed to fetch starred emails: {str(e)}"}
+        return {"error": f"Failed to fetch emails from {folder}: {str(e)}"}
+    
 
-def get_email_recipients(mailbox_token: str, email_id: str, recipient_type: str = "To"):
-    """ Fetch the recipients of a specific email based on recipient type ('To', 'Cc', 'Bcc') """
 
-    config = get_mailbox_config_from_token(mailbox_token)
 
+
+
+
+
+
+def get_email_recipients(config, email_id: str, recipient_type: str, folder: str = "INBOX"):
+    """ Fetch recipients using the sequence number (email_id) directly """
     try:
         imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-
-        # Select INBOX
-        imap.select("INBOX")
-
-        # Search for the email by Message-ID
-        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
-        email_ids = messages[0].split()
-
-        if not email_ids:
-            imap.logout()
-            return []
-
-        # Fetch the email
-        _, msg_data = imap.fetch(email_ids[0], "(RFC822)")
+        imap.select(folder)
+        _, msg_data = imap.fetch(email_id, "(RFC822)")
         msg = email.message_from_bytes(msg_data[0][1])
-
-        # Extract recipients based on the recipient type
         recipients = msg.get_all(recipient_type, [])
         imap.logout()
-
-        return [recipient.strip() for recipient in recipients]
-
+        return [recipient.strip() for recipient in recipients] if recipients else []
     except Exception as e:
-        return {"error": f"Failed to fetch {recipient_type} recipients: {str(e)}"}
-
+        return []
+    
+    
 def get_email_count(mailbox_token: str, folder: str):
     """ Get the total number of emails in a specified folder """
 
@@ -1518,23 +1611,108 @@ def get_email_count(mailbox_token: str, folder: str):
 
     except Exception as e:
         return {"error": f"Failed to get email count for folder {folder}: {str(e)}"}
+    
 
 def set_email_flag(mailbox_token: str, email_id: str, folder: str, flag: str, add: bool):
-    """ Set or unset a flag (e.g., \\Seen, \\Flagged) for an email in a specific folder """
+    """Set or remove a flag for an email in the specified folder.
+    
+    Searches by Message-ID in the given folder and applies the flag
+    to all matching emails using their IMAP sequence numbers.
+    """
     config = get_mailbox_config_from_token(mailbox_token)
+    imap = None
     try:
-        imap = imaplib.IMAP4_SSL(config["imap_server"], config["imap_port"])
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
         imap.login(config["email"], config["password"])
-        imap.select(folder)
-        _, messages = imap.search(None, f'HEADER Message-ID "{email_id}"')
-        email_ids = messages[0].split()
-        if not email_ids:
-            imap.logout()
-            return {"error": f"Email {email_id} not found in {folder}"}
-        for eid in email_ids:
-            imap.store(eid, f"{'+' if add else '-'}FLAGS", flag)
-        imap.logout()
-        return {"message": f"Email {email_id} {'flagged' if add else 'unflagged'} with {flag} in {folder}"}
-    except Exception as e:
-        return {"error": f"Failed to update flag for email {email_id}: {str(e)}"}
 
+        # Select the specified folder
+        status, _ = imap.select(folder)
+        if status != "OK":
+            return {"error": f"Failed to select folder: {folder}"}
+
+        # Search for email(s) by Message-ID header using IMAP's search command
+        _, search_data = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = search_data[0].split()
+
+        if not email_ids:
+            return {"error": f"Email {email_id} not found in {folder}"}
+
+        # Optionally fetch and log header content of the first match
+        fetch_status, header_data = imap.fetch(email_ids[0], '(BODY[HEADER])')
+        if fetch_status == "OK" and header_data and isinstance(header_data[0], tuple):
+            header_content = header_data[0][1].decode("utf-8", errors="ignore")
+            logging.info(f"Header content for email {email_id}: {header_content}")
+        else:
+            logging.info(f"Failed to fetch header for email {email_id}")
+
+        # For each matching email, set or remove the flag
+        if add:
+            for eid in email_ids:
+                imap.store(eid, "+FLAGS", "is_star")
+        else:
+            for eid in email_ids:
+                imap.store(eid, "-FLAGS", "is_star")
+
+        action = "added" if add else "removed"
+        return {"message": f"Flag {flag} {action} for email {email_id} in {folder}"}
+
+    except Exception as e:
+        return {"error": f"Failed to {('add' if add else 'remove')} flag {flag} for email {email_id}: {str(e)}"}
+    finally:
+        if imap:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+
+def set_email_flag_seen(mailbox_token: str, email_id: str, folder: str, flag: str, add: bool):
+    """Set or remove a flag for an email in the specified folder.
+    
+    Searches by Message-ID in the given folder and applies the flag
+    to all matching emails using their IMAP sequence numbers.
+    """
+    config = get_mailbox_config_from_token(mailbox_token)
+    imap = None
+    try:
+        imap = imaplib.IMAP4_SSL(config["imap_server"])
+        imap.login(config["email"], config["password"])
+
+        # Select the specified folder
+        status, _ = imap.select(folder)
+        if status != "OK":
+            return {"error": f"Failed to select folder: {folder}"}
+
+        # Search for email(s) by Message-ID header using IMAP's search command
+        _, search_data = imap.search(None, f'HEADER Message-ID "{email_id}"')
+        email_ids = search_data[0].split()
+
+        if not email_ids:
+            return {"error": f"Email {email_id} not found in {folder}"}
+
+        # Optionally fetch and log header content of the first match
+        fetch_status, header_data = imap.fetch(email_ids[0], '(BODY[HEADER])')
+        if fetch_status == "OK" and header_data and isinstance(header_data[0], tuple):
+            header_content = header_data[0][1].decode("utf-8", errors="ignore")
+            logging.info(f"Header content for email {email_id}: {header_content}")
+        else:
+            logging.info(f"Failed to fetch header for email {email_id}")
+
+        # For each matching email, set or remove the flag
+        if add:
+            for eid in email_ids:
+                imap.store(eid, "+FLAGS", "is_seen")
+        else:
+            for eid in email_ids:
+                imap.store(eid, "-FLAGS", "is_seen")
+
+        action = "added" if add else "removed"
+        return {"message": f"Flag {flag} {action} for email {email_id} in {folder}"}
+
+    except Exception as e:
+        return {"error": f"Failed to {('add' if add else 'remove')} flag {flag} for email {email_id}: {str(e)}"}
+    finally:
+        if imap:
+            try:
+                imap.logout()
+            except Exception:
+                pass

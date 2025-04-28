@@ -12,3 +12,4 @@ websockets
 PyJWT
 cryptography
 redis
+starlette

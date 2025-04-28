@@ -95,12 +95,13 @@ async def send_email(
 async def fetch_emails(authorization: str = Header(...), page: int = 1, limit: int = 20):
     """Fetch emails for a specific mailbox."""
     mailbox_token = authorization.split(" ")[1]
-    emails = email_service.get_emails(mailbox_token, page, limit)
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
+    emails = email_service.get_emails(config, page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
+        email["to"] = email_service.get_email_recipients(config, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(config, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(config, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(config, email["email_id"])
     return emails
 
 @router.get("/full-email/{email_id}")
@@ -113,11 +114,12 @@ async def fetch_full_email(email_id: str, authorization: str = Header(...)):
 async def fetch_full_email_from_folder(folder: str, email_id: str, authorization: str = Header(...)):
     """Fetch full email content including attachments from any folder."""
     mailbox_token = authorization.split(" ")[1]
-    email = email_service.get_full_email_from_folder(mailbox_token, email_id, folder)
-    email["to"] = email_service.get_email_recipients(mailbox_token, email_id, "To")
-    email["cc"] = email_service.get_email_recipients(mailbox_token, email_id, "Cc")
-    email["bcc"] = email_service.get_email_recipients(mailbox_token, email_id, "Bcc")
-    email["flags"] = email_service.get_email_flags(mailbox_token, email_id)
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
+    email = email_service.get_full_email_from_folder(config, email_id, folder)
+    email["to"] = email_service.get_email_recipients(config, email_id, "To")
+    email["cc"] = email_service.get_email_recipients(config, email_id, "Cc")
+    email["bcc"] = email_service.get_email_recipients(config, email_id, "Bcc")
+    email["flags"] = email_service.get_email_flags(config, email_id)
     return email
 
 ### EMAIL MANAGEMENT ###
@@ -125,13 +127,16 @@ async def fetch_full_email_from_folder(folder: str, email_id: str, authorization
 async def delete_email(authorization: str = Header(...), email_id: str = Form(...)):
     """Delete an email (move to Trash)."""
     mailbox_token = authorization.split(" ")[1]
-    return email_service.delete_email(mailbox_token, email_id)
+    email_service.delete_email(mailbox_token, email_id)
+    return {"message": "Email(s) moved to Trash"}
 
 @router.delete("/emails/trash/delete/{email_id}")
 async def delete_email_from_trash(email_id: str, authorization: str = Header(...)):
     """Permanently delete a specific email from Trash."""
     mailbox_token = authorization.split(" ")[1]
-    return email_service.delete_email_from_trash(mailbox_token, email_id)
+    email_service.delete_email_from_trash(mailbox_token, email_id)
+    return {"message": "Email(s) permanently deleted from Trash"}
+
 
 @router.post("/emails/move")
 async def move_email(
@@ -142,7 +147,8 @@ async def move_email(
 ):
     """Move email from one folder to another."""
     mailbox_token = authorization.split(" ")[1]
-    return email_service.move_email(mailbox_token, email_id, from_folder, to_folder)
+    email_service.move_email(mailbox_token, email_id, from_folder, to_folder)
+    return {"message": "Email(s) moved successfully"}
 
 @router.post("/emails/trash/empty")
 async def empty_trash(authorization: str = Header(...)):
@@ -154,97 +160,107 @@ async def empty_trash(authorization: str = Header(...)):
 async def mark_email_as_read(authorization: str = Header(...), email_id: str = Form(...)):
     """Mark an email as read."""
     mailbox_token = authorization.split(" ")[1]
-    return email_service.mark_email_as_read(mailbox_token, email_id)
+    email_service.mark_email_as_read(mailbox_token, email_id)
+    return {"message": "Email(s) marked as read"}
 
 @router.post("/mark-unread")
 async def mark_email_as_unread(authorization: str = Header(...), email_id: str = Form(...)):
     """Mark an email as unread."""
     mailbox_token = authorization.split(" ")[1]
-    return email_service.mark_email_as_unread(mailbox_token, email_id)
+    email_service.mark_email_as_unread(mailbox_token, email_id)
+    return {"message": "Email(s) marked as unread"}
 
 @router.post("/emails/star/{email_id}")
 async def star_email(email_id: str, authorization: str = Header(...)):
     """Star an email."""
     mailbox_token = authorization.split(" ")[1]
-    return email_service.star_email(mailbox_token, email_id)
+    email_service.star_email(mailbox_token, email_id)
+    return {"message": "Email(s) starred successfully"}
 
 @router.post("/emails/unstar/{email_id}")
 async def unstar_email(email_id: str, authorization: str = Header(...)):
     """Unstar an email."""
     mailbox_token = authorization.split(" ")[1]
-    return email_service.unstar_email(mailbox_token, email_id)
+    email_service.unstar_email(mailbox_token, email_id)
+    return {"message": "Email(s) unstarred successfully"}
 
 ### EMAIL FOLDERS ###
 @router.get("/emails/inbox")
-async def fetch_inbox(authorization: str = Header(...), page: int = 1, limit: int = 20):
+async def fetch_inbox(authorization: str = Header(...), page: int = 1, limit: int = 10):
     """Fetch emails from Inbox."""
     mailbox_token = authorization.split(" ")[1]
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
     emails = email_service.get_emails_by_folder(mailbox_token, "INBOX", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
+        email["to"] = email_service.get_email_recipients(config, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(config, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(config, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(config, email["email_id"])
     return emails
 
 @router.get("/emails/trash")
 async def fetch_trash(authorization: str = Header(...), page: int = 1, limit: int = 20):
     """Fetch emails from Trash."""
     mailbox_token = authorization.split(" ")[1]
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
     emails = email_service.get_emails_by_folder(mailbox_token, "Trash", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
+        email["to"] = email_service.get_email_recipients(config, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(config, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(config, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(config, email["email_id"])
     return emails
 
 @router.get("/emails/spam")
 async def fetch_spam(authorization: str = Header(...), page: int = 1, limit: int = 20):
     """Fetch emails from Spam."""
     mailbox_token = authorization.split(" ")[1]
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
     emails = email_service.get_emails_by_folder(mailbox_token, "Spam", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
+        email["to"] = email_service.get_email_recipients(config, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(config, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(config, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(config, email["email_id"])
     return emails
 
 @router.get("/emails/drafts")
 async def fetch_drafts(authorization: str = Header(...), page: int = 1, limit: int = 20):
     """Fetch emails from Drafts."""
     mailbox_token = authorization.split(" ")[1]
-    emails = email_service.get_emails_by_folder(mailbox_token, "Drafts", page, limit)
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
+    emails = email_service.get_emails_by_draft_folder(mailbox_token, "Drafts", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
+        email["from"] = email_service.get_email_recipients(config, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(config, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(config, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(config, email["email_id"])
     return emails
 
 @router.get("/emails/sent")
 async def fetch_sent(authorization: str = Header(...), page: int = 1, limit: int = 20):
     """Fetch emails from Sent."""
     mailbox_token = authorization.split(" ")[1]
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
     emails = email_service.get_emails_by_folder(mailbox_token, "Sent", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
+        email["to"] = email_service.get_email_recipients(config, email["email_id"], "To", folder="Sent")
+        email["cc"] = email_service.get_email_recipients(config, email["email_id"], "Cc", folder="Sent")
+        email["bcc"] = email_service.get_email_recipients(config, email["email_id"], "Bcc", folder="Sent")
+        email["flags"] = email_service.get_email_flags(config, email["email_id"], folder="Sent")
     return emails
 
 @router.get("/emails/archive")
 async def fetch_archive(authorization: str = Header(...), page: int = 1, limit: int = 20):
     """Fetch emails from Archive."""
     mailbox_token = authorization.split(" ")[1]
+    config = email_service.get_mailbox_config_from_token(mailbox_token)
     emails = email_service.get_emails_by_folder(mailbox_token, "Archive", page, limit)
     for email in emails.get("emails", []):
-        email["to"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "To")
-        email["cc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Cc")
-        email["bcc"] = email_service.get_email_recipients(mailbox_token, email["email_id"], "Bcc")
-        email["flags"] = email_service.get_email_flags(mailbox_token, email["email_id"])
+        email["to"] = email_service.get_email_recipients(config, email["email_id"], "To")
+        email["cc"] = email_service.get_email_recipients(config, email["email_id"], "Cc")
+        email["bcc"] = email_service.get_email_recipients(config, email["email_id"], "Bcc")
+        email["flags"] = email_service.get_email_flags(config, email["email_id"])
     return emails
 
 @router.get("/emails/starred")
@@ -351,22 +367,25 @@ async def download_email_attachment(email_id: str, attachment_id: str, authoriza
 async def mark_email_as_read_in_folder(email_id: str, folder: str, authorization: str = Header(...)):
     """ Mark an email as read in a specific folder """
     mailbox_token = authorization.split(" ")[1]
-    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Seen", True)
+    return email_service.set_email_flag_seen(mailbox_token, email_id, folder, "Seen", True)
 
 @router.post("/emails/{folder}/mark-unread")
 async def mark_email_as_unread_in_folder(email_id: str, folder: str, authorization: str = Header(...)):
     """ Mark an email as unread in a specific folder """
     mailbox_token = authorization.split(" ")[1]
-    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Seen", False)
+    return email_service.set_email_flag_seen(mailbox_token, email_id, folder, "Seen", False)
+
 
 @router.post("/emails/{folder}/star")
 async def star_email_in_folder(email_id: str, folder: str, authorization: str = Header(...)):
     """ Star an email in a specific folder """
     mailbox_token = authorization.split(" ")[1]
-    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Flagged", True)
+    email_service.set_email_flag(mailbox_token, email_id, folder, "is_star", True)
+    return {"message": "Email(s) starred successfully"}
 
 @router.post("/emails/{folder}/unstar")
 async def unstar_email_in_folder(email_id: str, folder: str, authorization: str = Header(...)):
     """ Unstar an email in a specific folder """
     mailbox_token = authorization.split(" ")[1]
-    return email_service.set_email_flag(mailbox_token, email_id, folder, "\\Flagged", False)
+    email_service.set_email_flag(mailbox_token, email_id, folder, "is_star", False)
+    return {"message": "Email(s) unstarred successfully"}

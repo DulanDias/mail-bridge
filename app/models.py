@@ -24,4 +24,5 @@ class DraftEmail(BaseModel):
     bcc: Optional[List[EmailStr]] = []
     subject: str
     body: str
+    is_reply: bool = False  # New parameter: indicates if this draft is a reply
     attachments: Optional[List[str]] = None  # Base64-encoded attachments

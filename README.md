@@ -1,12 +1,12 @@
 # **📧 MailBridge - FastAPI Mailbox Backend**
-🚀 **MailBridge** is a powerful, scalable, and feature-rich **email management backend** built with **FastAPI**, **Celery**, and **WebSockets**. It allows seamless management of multiple mailboxes, real-time email notifications, and background email processing.
+🚀 **MailBridge** is a powerful, scalable, and feature-rich **email management backend** built with **FastAPI**, **Redis**, **Celery**, and **WebSockets**. It allows seamless management of multiple mailboxes, real-time email notifications, and background email processing.
 
 ---
 
 ## **📖 Features**
 ### **Multiple Mailboxes Support**
 - Manage multiple email accounts dynamically.
-- Store mailbox configurations securely using **JWT tokens**.
+- Store mailbox configurations securely in Redis.
 
 ### **IMAP & SMTP Integration**
 - Fetch, send, delete, and archive emails.
@@ -22,6 +22,7 @@
 - Background tasks for sending and checking emails.
 
 ### **Unread Email Counters**
+- Cached unread email counts per mailbox.
 - Efficiently fetch unread email counts.
 
 ### **Email Metadata Handling**
@@ -45,16 +46,18 @@
 - Detailed descriptions and examples for each endpoint.
 
 ### **Docker & Docker Compose Support**
-- Easily deployable with Celery.
+- Easily deployable with Redis and Celery.
 - Docker and Docker Compose configurations included.
 
 ---
 
 ## **🛠️ Tech Stack**
 - **Backend:** FastAPI (Python 3.10+)
+- **Database:** Redis (Caching & Background Tasks)
 - **Email Handling:** IMAP & SMTP (`imaplib`, `aiosmtplib`)
 - **Real-time Updates:** WebSockets (`fastapi.websockets`)
-- **Background Tasks:** Celery
+- **Background Tasks:** Celery (with Redis as broker)
+- **Deployment:** Docker, Docker Compose
 - **Security:** Rate Limiting (`slowapi`), Input Validation (`Pydantic`)
 
 ---
@@ -71,12 +74,17 @@ cd mail-bridge
 pip install -r requirements.txt
 ```
 
-### **3️⃣ Start Celery Worker**
+### **3️⃣ Start Redis Server**
+```
+redis-server
+```
+
+### **4️⃣ Start Celery Worker**
 ```
 celery -A app.services.celery_worker worker --loglevel=info
 ```
 
-### **4️⃣ Run FastAPI Server**
+### **5️⃣ Run FastAPI Server**
 ```
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -201,20 +209,10 @@ docker-compose up -d
 |-------------|-----------|----------------|
 | `/check-new-emails` | `POST` | Manually trigger background email check |
 
-### **Authentication**
-| **Endpoint**      | **Method** | **Description**                          |
-|--------------------|-----------|------------------------------------------|
-| `/api/v1/auth/login` | `POST`   | Authenticate user and issue JWT and refresh tokens |
-| `/api/v1/auth/refresh-token` | `POST` | Refresh JWT token using a valid refresh token |
-
-### **Headers**
-- **Authorization**: `Bearer <jwt_token>` (Required for all protected endpoints)
-
 ---
 
 ## **🔑 Authentication**
-- **JWT Tokens**: Mailbox configurations are securely managed using JWT tokens. Each token contains encrypted credentials and server details.
-- **Token Expiration**: Tokens expire after 15 minutes. If a token expires, the API will return a `401 Unauthorized` response with the message `"Token has expired"`.
+- **JWT Tokens**: Mailbox configurations are now securely managed using JWT tokens. Each token contains encrypted credentials and server details.
 
 ### **Environment Variables**
 | **Variable**      | **Description**                          | **Default**                  |

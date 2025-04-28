@@ -1,17 +1,16 @@
-# Use the official Python base image
-FROM python:3.10
+FROM python:3.10 AS node
 
-# Set the working directory
-WORKDIR /app
+FROM node AS builder
 
-# Copy project files
-COPY . /app
+WORKDIR /src
 
-# Install dependencies
+COPY requirements.txt /src/requirements.txt
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the port FastAPI will run on
+COPY app /src/
+COPY tests /src/
+
 EXPOSE 8000
 
-# Run FastAPI
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

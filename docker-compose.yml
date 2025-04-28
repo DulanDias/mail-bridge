@@ -1,37 +1,29 @@
 version: "3.8"
 
 services:
-  fastapi:
-    build: .
+  mailbridge:
+    image: registry.echonlabs.com/echonlabs/mailbrige/api:1.0.0
     container_name: mailbridge
     restart: always
     ports:
-      - "8000:8000"
-    depends_on:
-      - celery
-      - redis
+      - "8002:8000"
+    env:
+      - .env
     networks:
-      - backend
+      - shared
 
-  celery:
-    build: .
-    container_name: celery-worker
+  mailbridge-celery:
+    image: celery
+    container_name: mailbridge-celery-worker
     restart: always
     command: celery -A app.services.celery_worker worker --loglevel=info
     depends_on:
       - redis
+    env:
+      - .env
     networks:
-      - backend
-
-  redis:
-    image: redis:alpine
-    container_name: redis
-    restart: always
-    ports:
-      - "6379:6379"
-    networks:
-      - backend
+      - shared
 
 networks:
-  backend:
-    driver: bridge
+  shared:
+    external: true

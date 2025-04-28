@@ -23,7 +23,7 @@ async def login(config: MailboxConfig):
     # Validate credentials directly
     success, error = validate_mailbox(config)
     if not success:
-        raise HTTPException(status_code=400, detail=error)
+        raise HTTPException(status_code=401, detail=error)
     
     # Generate tokens
     jwt_token = generate_jwt(
